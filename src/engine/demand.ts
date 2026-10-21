@@ -92,9 +92,9 @@ export function demandRows(s: GameState, m: Metrics): DemandRow[] {
       publicSoon > 0.2 ? `預計未來三年有約 ${nf(publicSoon, 1)} 萬個公營單位落成` : undefined,
       popChange3 > 10 ? `過去三年人口增加 ${nf(popChange3)} 萬，住戶需求上升` : undefined,
       popChange3 < -5 ? `過去三年人口減少 ${nf(-popChange3)} 萬` : undefined,
-      policy('cooling') !== 'off' ? '樓市辣招生效中，樓價升幅放慢' : undefined,
-      policy('hos85') !== 'off' ? '建屋目標生效中，供應增加、樓價受壓' : undefined,
-      policy('hos') === 'off' ? '居屋停建，中低收入家庭只能輪候公屋或租樓' : undefined,
+      policy('cooling') !== 'off' ? '額外印花稅生效中，樓價升幅放慢' : undefined,
+      policy('hos85') !== 'off' ? '房屋供應目標生效中，供應增加、樓價受壓' : undefined,
+      policy('hos') === 'off' ? '沒有資助出售房屋，中低收入家庭只能輪候公屋或租樓' : undefined,
       qualityReason(s, 'housing', '公營屋邨'),
     ]),
   }
@@ -138,6 +138,7 @@ export function demandRows(s: GameState, m: Metrics): DemandRow[] {
       fundingReason(s, 'transport'),
       railSoon > 1 ? `預計未來五年新增約 ${nf(railSoon)} 公里鐵路` : '未來五年沒有新鐵路落成',
       popChange3 > 10 ? `過去三年人口增加 ${nf(popChange3)} 萬，乘客增加` : undefined,
+      policy('fare') !== 'off' ? `乘車優惠：${POLICY_BY_ID.fare.levels.find((l) => l.id === policy('fare'))?.label}` : undefined,
       qualityReason(s, 'transport', '交通設施'),
     ]),
   }
@@ -160,6 +161,7 @@ export function demandRows(s: GameState, m: Metrics): DemandRow[] {
       fundingReason(s, 'health'),
       policy('oala') === 'on' ? '長者生活津貼生效中' : undefined,
       policy('upr') === 'on' ? '全民退休保障生效中' : undefined,
+      policy('primaryCare') === 'on' ? '地區基層醫療減輕醫院壓力' : undefined,
       qualityReason(s, 'health', '醫院和院舍'),
     ]),
   }
@@ -195,6 +197,8 @@ export function demandRows(s: GameState, m: Metrics): DemandRow[] {
       fundingReason(s, 'environment'),
       policy('cleanAir') !== 'off' ? `空氣污染管制：${POLICY_BY_ID.cleanAir.levels.find((l) => l.id === policy('cleanAir'))?.label}` : undefined,
       policy('countryPark') === 'on' ? '郊野公園邊陲正在發展' : undefined,
+      policy('evPromo') === 'on' ? '電動車推廣減少路邊廢氣' : undefined,
+      policy('cycling') === 'on' ? '鼓勵單車，短途少用汽車' : undefined,
       qualityReason(s, 'environment', '環保設施'),
     ]),
   }

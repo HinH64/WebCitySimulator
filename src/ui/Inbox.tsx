@@ -6,18 +6,19 @@ interface Props {
   onAnswer: (uid: number, optionId: string) => void
 }
 
+/** Pending decisions, shown as cards at the top of the news. Time keeps flowing while they wait. */
 export function Inbox({ items, now, onAnswer }: Props) {
+  if (items.length === 0) return null
   return (
-    <section className={`card inbox ${items.length > 0 ? 'has-items' : ''}`} aria-label="收件匣" aria-live="polite">
-      <h2 className="card-title">
-        收件匣{items.length > 0 && <span className="badge">{items.length}</span>}
+    <section className="decisions" aria-label="待決定" aria-live="polite">
+      <h2 className="decisions-title">
+        待決定 <span className="badge">{items.length}</span>
       </h2>
-      {items.length === 0 && <p className="muted small">暫時沒有要決定的事。</p>}
       {items.map((item) => {
         const left = item.deadline - now
         const def = item.options.find((o) => o.id === item.defaultOptionId)
         return (
-          <article key={item.uid} className="inbox-item">
+          <article key={item.uid} className="decision-card">
             <header>
               <strong>{item.title}</strong>
               <span className={`deadline ${left <= 3 ? 'urgent' : ''}`}>剩 {Math.max(0, left)} 個月</span>

@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { demandRows, topConcerns, type DemandRow } from '../engine/demand'
 import { computeIndicators } from '../engine/indicators'
 import { answer, debtTotal, metricsNow, step } from '../engine/sim'
 import { START_YEAR, monthOf, yearOf } from '../engine/time'
 import type { GameState, Signal } from '../engine/types'
 import { Inbox } from './Inbox'
-import { Indicators } from './Indicators'
+import { Concerns, IndicatorStrip } from './Indicators'
 import { NewsFeed } from './NewsFeed'
 import { BudgetPanel } from './panels/BudgetPanel'
 import { DebtPanel } from './panels/DebtPanel'
@@ -33,11 +33,13 @@ const PANELS: { id: PanelId; label: string }[] = [
   { id: 'debt', label: '債務' },
 ]
 
+const CHOICE_PAUSE = '有新抉擇待決定，已自動暫停。'
+
 /** Why the clock should stop after a month, given the player's settings. */
 function pauseReason(signals: Signal[], settings: Settings, game: GameState): string | null {
   const year = yearOf(game.t - 1)
   if (signals.includes('crisis') && settings.pauseOnCrisis) return '財政告急，已自動暫停。看看預算、稅率和債務。'
-  if (signals.includes('choice') && settings.pauseOnChoice) return '收件匣有新抉擇，已自動暫停。'
+  if (signals.includes('choice') && settings.pauseOnChoice) return CHOICE_PAUSE
   if (signals.includes('yearEnd') && settings.periodic > 0 && (year - START_YEAR) % settings.periodic === settings.periodic - 1) {
     return `${year} 年完結，已按設定暫停。`
   }
@@ -53,6 +55,19 @@ interface Props {
   onQuit: () => void
 }
 
+const NARROW = '(max-width: 900px)'
+
+function useNarrow(): boolean {
+  const [narrow, setNarrow] = useState(() => typeof window !== 'undefined' && window.matchMedia(NARROW).matches)
+  useEffect(() => {
+    const mq = window.matchMedia(NARROW)
+    const update = () => setNarrow(mq.matches)
+    mq.addEventListener('change', update)
+    return () => mq.removeEventListener('change', update)
+  }, [])
+  return narrow
+}
+
 export function GameScreen({ game, initialSpeed, settings, onSettings, onEnd, onQuit }: Props) {
   const [version, setVersion] = useState(0)
   const bump = useCallback(() => setVersion((v) => v + 1), [])
@@ -61,12 +76,31 @@ export function GameScreen({ game, initialSpeed, settings, onSettings, onEnd, on
   const [speed, setSpeed] = useState<Speed>(initialSpeed)
   const [panel, setPanel] = useState<PanelId>('budget')
   const [focusRow, setFocusRow] = useState<DemandRow['id']>()
+  const [sideOpen, setSideOpen] = useState(true)
+  const [sheetOpen, setSheetOpen] = useState(false)
   const [editing, setEditing] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [showSources, setShowSources] = useState(false)
+  const narrow = useNarrow()
   const progress = useRef(0)
+  const rootRef = useRef<HTMLDivElement>(null)
+  const headerRef = useRef<HTMLElement>(null)
 
-  const blocked = showSettings || showSources || (settings.pauseWhileEditing && editing)
+  // The side panel sits just below the sticky header, whose height changes with the window.
+  useLayoutEffect(() => {
+    const header = headerRef.current
+    const root = rootRef.current
+    if (!header || !root) return
+    const update = () => root.style.setProperty('--header-h', `${header.offsetHeight}px`)
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(header)
+    return () => ro.disconnect()
+  }, [])
+
+  const panelOpen = narrow ? sheetOpen : sideOpen
+  const editingNow = narrow ? sheetOpen : editing
+  const blocked = showSettings || showSources || (settings.pauseWhileEditing && editingNow)
   const running = game.status === 'running' && !paused && !blocked
 
   useEffect(() => {
@@ -104,9 +138,26 @@ export function GameScreen({ game, initialSpeed, settings, onSettings, onEnd, on
     return { m, rows, indicators: computeIndicators(m, game), lastYear: lastYear?.indicators, concerns: topConcerns(rows) }
   }, [game, version])
 
+  const openPanel = (id: PanelId, row?: DemandRow['id']) => {
+    if (narrow && sheetOpen && panel === id && !row) {
+      setSheetOpen(false)
+      return
+    }
+    setPanel(id)
+    setFocusRow(row)
+    if (narrow) setSheetOpen(true)
+    else setSideOpen(true)
+  }
+
+  const closePanel = () => {
+    if (narrow) setSheetOpen(false)
+    else setSideOpen(false)
+    setEditing(false)
+  }
+
   const onAnswer = (uid: number, optionId: string) => {
     answer(game, uid, optionId)
-    if (paused && pauseNote?.startsWith('收件匣') && game.inbox.length === 0) {
+    if (paused && pauseNote === CHOICE_PAUSE && game.inbox.length === 0) {
       setPaused(false)
       setPauseNote(null)
     }
@@ -128,57 +179,72 @@ export function GameScreen({ game, initialSpeed, settings, onSettings, onEnd, on
   const month = monthOf(t)
   const debt = debtTotal(game)
   const balance = game.last.revenueTotal - game.last.spendingTotal
-  const latest = game.news[game.news.length - 1]
   const { m } = view
 
+  const tabs = (className: string) => (
+    <nav className={className} role="tablist" aria-label="面板">
+      {PANELS.map((p) => (
+        <button
+          key={p.id}
+          role="tab"
+          aria-selected={panelOpen && panel === p.id}
+          className={panelOpen && panel === p.id ? 'active' : ''}
+          onClick={() => openPanel(p.id)}
+        >
+          {p.label}
+        </button>
+      ))}
+    </nav>
+  )
+
   return (
-    <div className="game">
-      <header className="topbar">
-        <div className="clock">
-          <div className="year">{yearOf(t)}</div>
-          <div className="clock-meta">
-            <span>{month} 月</span>
-            <div className="year-progress" aria-hidden="true">
-              <div style={{ width: `${((month - 1 + progress.current) / 12) * 100}%` }} />
+    <div className={`game ${narrow ? 'narrow' : ''}`} ref={rootRef}>
+      <header className="topbar" ref={headerRef}>
+        <div className="topbar-row">
+          <div className="clock">
+            <div className="year">{yearOf(t)}</div>
+            <div className="clock-meta">
+              <span>{month} 月</span>
+              <div className="year-progress" aria-hidden="true">
+                <div style={{ width: `${((month - 1 + progress.current) / 12) * 100}%` }} />
+              </div>
             </div>
           </div>
-        </div>
-        <div className="vitals">
-          <div className="vital">
-            <span className="eyebrow">庫房</span>
-            <strong>{money(game.reserves)}</strong>
-            <span className={`small ${balance >= 0 ? 'good' : 'bad'}`}>
-              {balance >= 0 ? '▲' : '▼'} {money(Math.abs(balance))}／月
-            </span>
-          </div>
-          {debt > 0 && (
+          <div className="vitals">
             <div className="vital">
-              <span className="eyebrow">債務</span>
-              <strong className="warn">{money(debt)}</strong>
+              <span className="eyebrow">庫房</span>
+              <strong>{money(game.reserves)}</strong>
+              <span className={`small ${balance >= 0 ? 'good' : 'bad'}`}>
+                {balance >= 0 ? '▲' : '▼'} {money(Math.abs(balance))}／月
+              </span>
             </div>
-          )}
-          <div className="vital">
-            <span className="eyebrow">人口</span>
-            <strong>{formatNumber(m.population, 1)} 萬</strong>
-            <span className={`small ${game.last.popChange >= 0 ? 'good' : 'bad'}`}>{signed(game.last.popChange * 12, 1)} 萬／年</span>
+            {debt > 0 && (
+              <div className="vital">
+                <span className="eyebrow">債務</span>
+                <strong className="warn">{money(debt)}</strong>
+              </div>
+            )}
+            <div className="vital">
+              <span className="eyebrow">人口</span>
+              <strong>{formatNumber(m.population, 1)} 萬</strong>
+              <span className={`small ${game.last.popChange >= 0 ? 'good' : 'bad'}`}>{signed(game.last.popChange * 12, 1)} 萬／年</span>
+            </div>
+          </div>
+          <div className="controls">
+            <button className="button" onClick={togglePause} disabled={game.status !== 'running'} aria-label={paused ? '繼續' : '暫停'}>
+              {paused ? '▶' : '❚❚'}
+              <span className="control-label">{paused ? ' 繼續' : ' 暫停'}</span>
+            </button>
+            <button className="button" onClick={changeSpeed} aria-label={`速度：${SPEED_LABEL[speed]}`}>
+              <span className="control-label">速度：</span>
+              {SPEED_LABEL[speed]}
+            </button>
+            <button className="button icon" onClick={() => setShowSettings(true)} aria-label="設定">
+              ⚙
+            </button>
           </div>
         </div>
-        <div className="controls">
-          <button className="button" onClick={togglePause} disabled={game.status !== 'running'}>
-            {paused ? '▶ 繼續' : '❚❚ 暫停'}
-          </button>
-          <button className="button" onClick={changeSpeed}>
-            速度：{SPEED_LABEL[speed]}
-          </button>
-          <button className="button icon" onClick={() => setShowSettings(true)} aria-label="設定">
-            ⚙
-          </button>
-        </div>
-        {latest && (
-          <div className="ticker" aria-hidden="true">
-            <span className="muted">{monthOf(latest.t)} 月</span> {latest.text}
-          </div>
-        )}
+        <IndicatorStrip values={view.indicators} lastYear={view.lastYear} onSelect={(row) => openPanel('demand', row)} />
       </header>
 
       {paused && pauseNote && (
@@ -190,56 +256,45 @@ export function GameScreen({ game, initialSpeed, settings, onSettings, onEnd, on
         </div>
       )}
 
-      <main className="layout">
-        <div className="col-left">
-          <Indicators
-            values={view.indicators}
-            lastYear={view.lastYear}
-            concerns={view.concerns}
-            onSelect={(row) => {
-              setPanel('demand')
-              setFocusRow(row)
-            }}
-          />
-        </div>
-
-        <section
-          className="card col-center"
-          onPointerEnter={() => setEditing(true)}
-          onPointerLeave={() => setEditing(false)}
-          onFocus={() => setEditing(true)}
-          onBlur={() => setEditing(false)}
-          aria-label="面板"
-        >
-          <nav className="tabs" role="tablist">
-            {PANELS.map((p) => (
-              <button
-                key={p.id}
-                role="tab"
-                aria-selected={panel === p.id}
-                className={panel === p.id ? 'active' : ''}
-                onClick={() => {
-                  setPanel(p.id)
-                  setFocusRow(undefined)
-                }}
-              >
-                {p.label}
-              </button>
-            ))}
-          </nav>
-          {panel === 'budget' && <BudgetPanel game={game} metrics={m} onChange={bump} />}
-          {panel === 'demand' && <DemandPanel rows={view.rows} focus={focusRow} />}
-          {panel === 'population' && <PopulationPanel game={game} metrics={m} />}
-          {panel === 'tax' && <TaxPanel game={game} onChange={bump} />}
-          {panel === 'policy' && <PolicyPanel game={game} onChange={bump} />}
-          {panel === 'debt' && <DebtPanel game={game} metrics={m} onChange={bump} />}
-        </section>
-
-        <div className="col-right">
+      <main className={`layout ${!narrow && !sideOpen ? 'side-closed' : ''}`}>
+        <div className="news-col">
+          <Concerns concerns={view.concerns} onSelect={(row) => openPanel('demand', row)} />
           <Inbox items={game.inbox} now={game.t} onAnswer={onAnswer} />
-          <NewsFeed news={game.news} />
+          <NewsFeed news={game.news} count={game.news.length} />
         </div>
+
+        {!narrow && !sideOpen && tabs('side-rail')}
+
+        {narrow && sheetOpen && <div className="sheet-backdrop" onClick={closePanel} aria-hidden="true" />}
+        {panelOpen && (
+          <aside
+            className={narrow ? 'side sheet' : 'side'}
+            onPointerEnter={() => setEditing(true)}
+            onPointerLeave={() => setEditing(false)}
+            onFocus={() => setEditing(true)}
+            onBlur={() => setEditing(false)}
+            aria-label="面板"
+          >
+            <div className="side-head">
+              <h2 className="sheet-title">{PANELS.find((p) => p.id === panel)?.label}</h2>
+              {tabs('tabs')}
+              <button className="icon-button side-close" onClick={closePanel} aria-label={narrow ? '關閉面板' : '收起面板'}>
+                {narrow ? '×' : '»'}
+              </button>
+            </div>
+            <div className="side-body">
+              {panel === 'budget' && <BudgetPanel game={game} metrics={m} onChange={bump} />}
+              {panel === 'demand' && <DemandPanel rows={view.rows} focus={focusRow} />}
+              {panel === 'population' && <PopulationPanel game={game} metrics={m} />}
+              {panel === 'tax' && <TaxPanel game={game} onChange={bump} />}
+              {panel === 'policy' && <PolicyPanel game={game} onChange={bump} />}
+              {panel === 'debt' && <DebtPanel game={game} metrics={m} onChange={bump} />}
+            </div>
+          </aside>
+        )}
       </main>
+
+      {narrow && tabs('bottom-tabs')}
 
       {showSettings && (
         <SettingsDialog

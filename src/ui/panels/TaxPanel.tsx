@@ -1,11 +1,13 @@
 import { REVENUE_LABEL, TAXES, TAX_INFO, type RevenueId } from '../../data/budget'
+import { POLICIES } from '../../data/policies'
 import { realTax } from '../../engine/real'
 import { setTax } from '../../engine/sim'
 import { LAST_MONTH_INDEX } from '../../engine/time'
 import type { GameState } from '../../engine/types'
 import { formatNumber, money, percent } from '../format'
+import { PolicyItem } from './PolicyPanel'
 
-const EXTRA_LABEL: Record<string, string> = { gst: '商品及服務稅' }
+const EXTRA_LABEL: Record<string, string> = { gst: '銷售稅' }
 
 export function TaxPanel({ game, onChange }: { game: GameState; onChange: () => void }) {
   const revenue = Object.entries(game.last.revenue).filter(([, v]) => Math.abs(v) > 0.01)
@@ -53,6 +55,12 @@ export function TaxPanel({ game, onChange }: { game: GameState; onChange: () => 
           </div>
         )
       })}
+
+      <ul className="policy-list">
+        {POLICIES.filter((p) => p.category === 'tax').map((p) => (
+          <PolicyItem key={p.id} game={game} p={p} onChange={onChange} />
+        ))}
+      </ul>
 
       <h3 className="card-subtitle">上月收入來源</h3>
       <ul className="breakdown">

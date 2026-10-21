@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { DEPARTMENTS, REVENUE_SHARE_ANCHORS, SPEND_SHARE_ANCHORS } from '../src/data/budget'
+import { CITY_EVENTS } from '../src/data/cityEvents'
 import { HISTORY_CHOICES, HISTORY_EVENTS, PARALLEL_EVENTS } from '../src/data/events'
 import { POLICIES, POLICY_BY_ID } from '../src/data/policies'
 import { FIRST_YEAR, LAST_YEAR, REAL, realRevenue, yearValue } from '../src/data/real'
 import { computeResult } from '../src/engine/endings'
 import { computeIndicators } from '../src/engine/indicators'
 import { computeMetrics, realMetrics } from '../src/engine/metrics'
-import { answer, debtTotal, newGame, playThrough, playerPolicyLevel, step, type Strategy } from '../src/engine/sim'
+import { answer, debtTotal, newGame, playThrough, playerPolicyLevel, setPolicy, step, type Strategy } from '../src/engine/sim'
+import { realPolicyLevel } from '../src/engine/real'
 import { monthIndex } from '../src/engine/time'
 import { INDICATOR_IDS } from '../src/engine/types'
 import { FOLLOW_HISTORY, UNTOUCHED, allFunding, boost, randomStrategy } from './strategies'
@@ -51,10 +53,38 @@ describe('data', () => {
         }
       }
     }
-    for (const e of PARALLEL_EVENTS) {
+    for (const e of [...PARALLEL_EVENTS, ...CITY_EVENTS]) {
       expect(ids.has(e.id), e.id).toBe(false)
       ids.add(e.id)
     }
+  })
+
+  it('only makes decisions conditional on known policy levels', () => {
+    for (const c of HISTORY_CHOICES) {
+      if (!c.onlyIf) continue
+      const p = POLICY_BY_ID[c.onlyIf.policy]
+      expect(p, c.id).toBeDefined()
+      for (const l of c.onlyIf.levels) expect(p.levels.some((x) => x.id === l), `${c.id} ${l}`).toBe(true)
+    }
+  })
+
+  it('offers a decision for every real policy change, taking effect when it really did', () => {
+    for (const p of POLICIES) {
+      for (const change of p.real.slice(1)) {
+        const t = monthIndex(...change.from)
+        // An answer given straight away counts from the next month; a scheduled one from its `at`.
+        const choice = HISTORY_CHOICES.find((c) =>
+          c.options
+            .find((o) => o.id === c.realOptionId)!
+            .effects.some((e) => e.kind === 'policy' && e.id === p.id && e.level === change.level && monthIndex(c.year, c.month) + (e.at ?? 1) === t),
+        )
+        expect(choice, `${p.id} -> ${change.level} ${change.from.join('-')}`).toBeDefined()
+      }
+    }
+  })
+
+  it('makes general policies available from the start, except new technology', () => {
+    expect(POLICIES.filter((p) => monthIndex(...p.availableFrom) > 0).map((p) => p.id)).toEqual(['lph'])
   })
 
   it('only gates history events on earlier choices and known policies', () => {
@@ -70,7 +100,8 @@ describe('data', () => {
 })
 
 describe('following history', () => {
-  const s = playThrough(42, FOLLOW_HISTORY)
+  // City events are random; without them, following history must reproduce it exactly.
+  const s = playThrough(42, FOLLOW_HISTORY, { events: false })
 
   it('finishes the whole term', () => {
     expect(s.status).toBe('ended')
@@ -90,17 +121,34 @@ describe('following history', () => {
     }
   })
 
-  it('triggers no parallel-timeline events', () => {
-    expect(s.news.filter((n) => n.kind === 'parallel')).toEqual([])
+  it('reports milestones but no city events', () => {
+    expect(s.news.filter((n) => n.kind === 'parallel' || n.kind === 'city')).toEqual([])
+    expect(s.news.filter((n) => n.kind === 'milestone').length).toBeGreaterThanOrEqual(10)
     expect(s.bonds).toEqual([])
   })
 
-  it('ends as history repeating itself', () => {
+  it('scores the same as real Hong Kong', () => {
     const r = computeResult(s)
     expect(r.title).toBe('歷史重演')
-    expect(Math.abs(r.total)).toBeLessThan(0.01)
+    expect(r.score).toBeCloseTo(r.real.score, 6)
+    expect(r.rating).toBe(r.real.rating)
     for (const row of r.comparison) expect(row.yours, row.label).toBeCloseTo(row.real, 2)
+    expect(r.reveals.length).toBe(HISTORY_CHOICES.length)
     expect(r.reveals.every((x) => x.same)).toBe(true)
+  })
+
+  it('stays close to history with city events on', () => {
+    const g = playThrough(42, FOLLOW_HISTORY)
+    const news = g.news.filter((n) => n.kind === 'city')
+    expect(news.length).toBeGreaterThanOrEqual(40)
+    expect(news.length).toBeLessThanOrEqual(130)
+    expect(new Set(news.map((n) => n.category)).size).toBe(8)
+    const end = g.snapshots.at(-1)!
+    const real = realMetrics(end.t)
+    expect(Math.abs(end.metrics.population / real.population - 1)).toBeLessThan(0.01)
+    expect(Math.abs(end.metrics.gdp / real.gdp - 1)).toBeLessThan(0.02)
+    expect(Math.abs(end.reserves / yearValue('reserves', end.year) - 1)).toBeLessThan(0.05)
+    expect(computeResult(g).rating).toBe('B')
   })
 })
 
@@ -141,21 +189,60 @@ describe('simulation', () => {
   it('takes the status-quo option when a decision expires', () => {
     const g = playThrough(3, UNTOUCHED)
     const history = g.choices.filter((c) => c.kind === 'history')
-    expect(history.length).toBe(HISTORY_CHOICES.length)
     for (const c of history) {
       expect(c.expired).toBe(true)
       expect(c.optionId).toBe(HISTORY_CHOICES.find((h) => h.id === c.id)!.defaultOptionId)
     }
+    // Decisions that only make sense after another one went the historical way never came up.
+    const skipped = HISTORY_CHOICES.filter((c) => !history.some((r) => r.id === c.id)).map((c) => c.id)
+    expect(skipped.sort()).toEqual(['derating', 'hos85Drop', 'hosResume'])
   })
 
-  it('keeps a pending decision\'s policies as they were until it is answered', () => {
+  it('never changes a policy unless the player does', () => {
+    const g = playThrough(3, UNTOUCHED)
+    for (const p of POLICIES) expect(g.policies[p.id], p.id).toBe(p.real[0].level)
+    const t = monthIndex(2016, 1)
+    expect(realPolicyLevel('talent', t)).toBe('standard')
+    expect(playerPolicyLevel(g, POLICY_BY_ID.talent, t)).toBe('off')
+  })
+
+  it('starts a scheduled policy when the decision says', () => {
     const g = newGame(2)
-    while (g.t <= monthIndex(1997, 11)) step(g)
+    while (g.t <= monthIndex(2010, 7)) step(g)
+    const item = g.inbox.find((i) => i.id === 'minWage')!
+    answer(g, item.uid, 'legislate')
+    expect(g.policies.minWage).toBe('off')
+    while (g.t < monthIndex(2011, 5)) step(g)
+    expect(g.policies.minWage).toBe('off')
+    step(g)
+    expect(g.policies.minWage).toBe('on')
+    expect(g.news.some((n) => n.text.includes('法定最低工資實施'))).toBe(true)
+  })
+
+  it('lets the player override a scheduled policy', () => {
+    const g = newGame(2)
+    while (g.t <= monthIndex(2010, 7)) step(g)
+    answer(g, g.inbox.find((i) => i.id === 'minWage')!.uid, 'legislate')
+    setPolicy(g, 'minWage', 'off')
+    while (g.t <= monthIndex(2011, 6)) step(g)
+    expect(g.policies.minWage).toBe('off')
+  })
+
+  it('sets a decision\'s policy only when it is answered', () => {
+    const g = newGame(2)
+    while (g.t <= monthIndex(1998, 3)) step(g)
     expect(g.inbox.some((i) => i.id === 'hos85')).toBe(true)
+    expect(realPolicyLevel('hos85', g.t)).toBe('full')
     expect(playerPolicyLevel(g, POLICY_BY_ID.hos85, g.t)).toBe('off')
     const item = g.inbox.find((i) => i.id === 'hos85')!
     answer(g, item.uid, 'full')
     expect(playerPolicyLevel(g, POLICY_BY_ID.hos85, g.t)).toBe('full')
+  })
+
+  it('brings up a follow-up decision only where it applies', () => {
+    const strategy = (target: string): Strategy => ({ choose: (_s, item) => (item.id === 'hos85' ? target : undefined) })
+    expect(playThrough(5, strategy('full')).choices.some((c) => c.id === 'hos85Drop')).toBe(true)
+    expect(playThrough(5, strategy('none')).choices.some((c) => c.id === 'hos85Drop')).toBe(false)
   })
 
   it('builds public housing and shortens the queue when housing is funded', () => {
