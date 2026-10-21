@@ -1,4 +1,5 @@
 import { DEBT, DEPARTMENTS, FUNDING_MAX, FUNDING_MIN, TAX_INFO, type DeptId, type TaxId } from '../data/budget'
+import { CITY_EVENTS } from '../data/cityEvents'
 import { HISTORY_CHOICES, HISTORY_EVENTS, PARALLEL_EVENTS } from '../data/events'
 import { POLICIES, POLICY_BY_ID, type PolicyDef, type PolicyEffect } from '../data/policies'
 import { yearValue } from '../data/real'
@@ -27,12 +28,14 @@ import { LAST_MONTH_INDEX, START_YEAR, isBefore, monthOf, yearOf } from './time'
 import type {
   ChoiceOption,
   ChoiceRecord,
+  CityContext,
   Effect,
+  GameOptions,
   GameState,
+  HistoryChoice,
   InboxItem,
   Metrics,
   MonthFlows,
-  ParallelContext,
   StockKey,
   YearAccumulator,
 } from './types'
@@ -55,6 +58,21 @@ const LIFE_ADJUST_PER_MONTH = 0.15 / 12
 const POLICY_LEVEL_SPEED = 1 / 24
 const AUTO_BOND_BUFFER = 300
 const MAX_PARALLEL_PER_MONTH = 2
+/** Chance each month that an everyday city event makes the news. */
+const CITY_EVENT_CHANCE = 0.22
+
+/** Milestones announced when a series crosses each multiple of its step. */
+const MILESTONES: { id: string; step: number; value: (m: Metrics, s: GameState) => number; text: (v: number) => string }[] = [
+  { id: 'population', step: 25, value: (m) => m.population, text: (v) => `香港人口突破 ${fmtStep(v)} 萬。` },
+  { id: 'publicUnits', step: 5, value: (m) => m.publicUnits, text: (v) => `公營房屋單位突破 ${fmtStep(v)} 萬個。` },
+  { id: 'railKm', step: 25, value: (m) => m.railKm, text: (v) => `鐵路網絡突破 ${fmtStep(v)} 公里。` },
+  { id: 'reserves', step: 5000, value: (_m, s) => s.reserves, text: (v) => `財政儲備突破 ${fmtStep(v)} 億元。` },
+  { id: 'lifeExpectancy', step: 2, value: (m) => m.lifeExpectancy, text: (v) => `平均預期壽命突破 ${fmtStep(v)} 歲。` },
+]
+
+function fmtStep(v: number): string {
+  return new Intl.NumberFormat('zh-HK').format(v)
+}
 
 /**
  * How extra spending (per 億 at 1997 prices) turns into things, and when.
@@ -113,11 +131,12 @@ function newAccumulator(year: number, m: Metrics): YearAccumulator {
   }
 }
 
-export function newGame(seed: number): GameState {
+export function newGame(seed: number, options: Partial<GameOptions> = {}): GameState {
   const funding = Object.fromEntries(DEPARTMENTS.map((d) => [d, realFunding(d, 0)])) as Record<DeptId, number>
   const s: GameState = {
     seed,
     rng: seed,
+    options: { events: true, ...options },
     t: 0,
     status: 'running',
     dev: zeroDeviations(),
@@ -125,7 +144,7 @@ export function newGame(seed: number): GameState {
     funding,
     taxes: {},
     felt: { ...realFelt(0) },
-    policies: {},
+    policies: Object.fromEntries(POLICIES.map((p) => [p.id, p.real[0].level])),
     policyLevels: { unemployment: 0, welfare: 0, attract: 0, pm10: 0, green: 0 },
     sectors: { ...realSectors(0) },
     reserves: realReserves(0),
@@ -137,6 +156,8 @@ export function newGame(seed: number): GameState {
     choices: [],
     flags: {},
     cooldowns: {},
+    migrationLog: [],
+    milestones: {},
     news: [],
     signals: [],
     last: emptyFlows(),
@@ -171,9 +192,10 @@ export function debtTotal(s: GameState): number {
   return s.bonds.reduce((a, b) => a + b.principal, 0)
 }
 
+/** The policy as the player has it; before it becomes available it is at its neutral level. */
 export function playerPolicyLevel(s: Pick<GameState, 'policies'>, p: PolicyDef, t: number): string {
   if (isBefore(t, p.availableFrom)) return p.levels[0].id
-  return s.policies[p.id] ?? realPolicyLevel(p.id, t)
+  return s.policies[p.id] ?? p.real[0].level
 }
 
 function growthActive(e: PolicyEffect, year: number): number {
@@ -211,10 +233,10 @@ export function setTax(s: GameState, id: TaxId, rate: number | undefined) {
   else s.taxes[id] = clamp(rate, TAX_INFO[id].min, TAX_INFO[id].max)
 }
 
-export function setPolicy(s: GameState, id: string, level: string | undefined) {
+export function setPolicy(s: GameState, id: string, level: string) {
   const p = POLICY_BY_ID[id]
   if (!p || isBefore(s.t, p.availableFrom)) return
-  if (level !== undefined && !p.levels.some((l) => l.id === level)) return
+  if (!p.levels.some((l) => l.id === level)) return
   s.policies[id] = level
 }
 
@@ -242,7 +264,10 @@ function applyEffect(s: GameState, e: Effect, sign: 1 | -1, baseT: number) {
   }
 }
 
-/** Answers an inbox item. History choices only change the city where they differ from what happened. */
+/**
+ * Answers an inbox item. A history choice always sets the policies it names; its other effects
+ * only apply where the option differs from what happened, because history already contains them.
+ */
 export function answer(s: GameState, uid: number, optionId: string, expired = false): ChoiceRecord | undefined {
   const item = s.inbox.find((i) => i.uid === uid)
   if (!item) return undefined
@@ -253,11 +278,9 @@ export function answer(s: GameState, uid: number, optionId: string, expired = fa
   if (item.kind === 'history') {
     const ch = HISTORY_CHOICES.find((c) => c.id === item.id)!
     const real = ch.options.find((o) => o.id === ch.realOptionId)!
-    if (opt.id === real.id) {
-      // Going with history: its policies keep following the historical timeline.
-      for (const e of real.effects) if (e.kind === 'policy') s.policies[e.id] = undefined
-    } else {
-      for (const e of opt.effects) applyEffect(s, e, 1, s.t)
+    for (const e of opt.effects) if (e.kind === 'policy') applyEffect(s, e, 1, s.t)
+    if (opt.id !== real.id) {
+      for (const e of opt.effects) if (e.kind !== 'policy') applyEffect(s, e, 1, s.t)
       for (const e of real.effects) if (e.kind === 'stock') applyEffect(s, e, -1, item.received)
     }
   } else {
@@ -285,18 +308,22 @@ export function answer(s: GameState, uid: number, optionId: string, expired = fa
 
 function pushInbox(s: GameState, item: Omit<InboxItem, 'uid' | 'received' | 'deadline'>) {
   s.inbox.push({ ...item, uid: s.nextInboxId++, received: s.t, deadline: s.t + INBOX_DEADLINE })
-  // While a decision waits, the policies it covers stay as they were before it came up.
-  if (item.kind === 'history') {
-    for (const o of item.options) {
-      for (const e of o.effects) {
-        if (e.kind === 'policy' && s.policies[e.id] === undefined) {
-          s.policies[e.id] = playerPolicyLevel(s, POLICY_BY_ID[e.id], Math.max(0, s.t - 1))
-        }
-      }
-    }
-  }
   s.news.push({ t: s.t, kind: 'inbox', text: item.title })
   s.signals.push('choice')
+}
+
+/** Whether a history decision comes up, given the player's policies at the time. */
+export function choiceApplies(s: Pick<GameState, 'policies'>, ch: HistoryChoice, t: number): boolean {
+  if (!ch.onlyIf) return true
+  return ch.onlyIf.levels.includes(playerPolicyLevel(s, POLICY_BY_ID[ch.onlyIf.policy], t))
+}
+
+/** The city as it was about `years` ago, from the yearly snapshots. */
+export function metricsAgo(s: GameState, years: number): Metrics {
+  const target = s.t - 12 * years
+  let best: Metrics | undefined
+  for (const snap of s.snapshots) if (snap.t <= target) best = snap.metrics
+  return best ?? s.snapshots[0]?.metrics ?? realMetrics(0)
 }
 
 function needRatio(d: DeptId | 'other', m: Metrics, real: Metrics): number {
@@ -580,6 +607,7 @@ export function step(s: GameState) {
     popChange: levelAt('population', t + 1) + s.dev.pop - popStart,
   }
   s.last.otherNet = s.last.popChange - s.last.births + s.last.deaths - s.last.oneWay
+  s.migrationLog = [...s.migrationLog.slice(-11), s.last.otherNet]
 
   if (debtRatio > DEBT.ceiling) {
     s.status = 'ended'
@@ -597,25 +625,58 @@ export function step(s: GameState) {
     if (text) s.news.push({ t, kind: 'history', text })
   }
   for (const ch of HISTORY_CHOICES) {
-    if (ch.year !== year || ch.month !== month) continue
+    if (ch.year !== year || ch.month !== month || !choiceApplies(s, ch, t)) continue
     pushInbox(s, { kind: 'history', id: ch.id, title: ch.title, text: ch.text, options: ch.options, defaultOptionId: ch.defaultOptionId })
   }
   for (const item of s.inbox.filter((i) => i.deadline <= t)) answer(s, item.uid, item.defaultOptionId, true)
 
-  const ctx: ParallelContext = {
-    t,
-    year,
-    m,
-    real,
-    dev: s.dev,
-    quality: s.quality,
-    attract: attract.total,
-    reserves: s.reserves,
-    realReserves: realReserves(t + 1),
-    debtRatio,
-    yearlySpending: spendingTotal * 12,
-    autoBorrowed,
+  checkMilestones(s, m)
+  if (s.options.events) {
+    const ctx: CityContext = {
+      t,
+      year,
+      month,
+      m,
+      quality: s.quality,
+      funding: s.funding,
+      policy: (id) => playerPolicyLevel(s, POLICY_BY_ID[id], t),
+      reserves: s.reserves,
+      debtRatio,
+      yearlySpending: spendingTotal * 12,
+      autoBorrowed,
+      migration12: s.migrationLog.reduce((a, b) => a + b, 0),
+      ago: (years) => metricsAgo(s, years),
+    }
+    cityDynamics(s, ctx)
+    cityEvent(s, ctx)
   }
+
+  if (month === 12) {
+    snapshot(s, t)
+    s.signals.push('yearEnd')
+  }
+
+  if (t >= LAST_MONTH_INDEX) {
+    if (month !== 12) snapshot(s, t)
+    closeYear(s, m)
+    s.status = 'ended'
+  }
+  s.t = t + 1
+}
+
+function checkMilestones(s: GameState, m: Metrics) {
+  for (const ms of MILESTONES) {
+    // Only new highs are announced, so a series hovering around a step is reported once.
+    const level = Math.floor(ms.value(m, s) / ms.step)
+    const prev = s.milestones[ms.id]
+    if (prev !== undefined && level > prev) s.news.push({ t: s.t, kind: 'milestone', text: ms.text(level * ms.step), tone: 'good' })
+    if (prev === undefined || level > prev) s.milestones[ms.id] = level
+  }
+}
+
+/** Events that follow from the city crossing a threshold. */
+function cityDynamics(s: GameState, ctx: CityContext) {
+  const t = s.t
   let fired = 0
   for (const pe of PARALLEL_EVENTS) {
     if (fired >= MAX_PARALLEL_PER_MONTH) break
@@ -635,18 +696,25 @@ export function step(s: GameState) {
     }
     if (pe.id === 'debtWarning') s.signals.push('crisis')
   }
+}
 
-  if (month === 12) {
-    snapshot(s, t)
-    s.signals.push('yearEnd')
-  }
-
-  if (t >= LAST_MONTH_INDEX) {
-    if (month !== 12) snapshot(s, t)
-    closeYear(s, m)
-    s.status = 'ended'
-  }
-  s.t = t + 1
+/** Now and then, one piece of everyday news, more likely where the city's state makes it so. */
+function cityEvent(s: GameState, ctx: CityContext) {
+  if (rand(s) >= CITY_EVENT_CHANCE) return
+  const t = s.t
+  const pool = CITY_EVENTS.map((ev) => {
+    const last = s.cooldowns[ev.id]
+    const ready = last === undefined || t - last >= ev.cooldown
+    return { ev, w: ready ? Math.max(0, ev.weight(ctx)) : 0 }
+  }).filter((x) => x.w > 0)
+  const total = pool.reduce((a, x) => a + x.w, 0)
+  if (total <= 0) return
+  let r = rand(s) * total
+  const pick = pool.find((x) => (r -= x.w) < 0) ?? pool[pool.length - 1]
+  const ev = pick.ev
+  s.cooldowns[ev.id] = t
+  for (const e of ev.effects ?? []) applyEffect(s, e, 1, t)
+  s.news.push({ t, kind: 'city', category: ev.category, text: typeof ev.text === 'function' ? ev.text(ctx) : ev.text, tone: ev.tone })
 }
 
 export interface Strategy {
@@ -658,23 +726,24 @@ export function realOptionId(choiceId: string): string | undefined {
   return HISTORY_CHOICES.find((c) => c.id === choiceId)?.realOptionId
 }
 
-/** Does what the real government did: real funding levels and real choices. */
+/** Does what the real government did: real funding levels, policies and choices. */
 export const FOLLOW_HISTORY: Strategy = {
   onMonth: (s) => {
     for (const d of DEPARTMENTS) s.funding[d] = realFunding(d, s.t)
+    for (const p of POLICIES) s.policies[p.id] = realPolicyLevel(p.id, s.t)
   },
   choose: (_s, item) => (item.kind === 'history' ? realOptionId(item.id) : item.defaultOptionId),
 }
 
 /** Runs a whole game without a UI; used by tests and balance checks. */
-export function playThrough(seed: number, strategy: Strategy): GameState {
-  const s = newGame(seed)
+export function playThrough(seed: number, strategy: Strategy, options: Partial<GameOptions> = {}): GameState {
+  const s = newGame(seed, options)
   for (let guard = 0; s.status === 'running' && guard < 5000; guard++) {
-    strategy.onMonth?.(s)
     for (const item of [...s.inbox]) {
       const id = strategy.choose(s, item)
       if (id) answer(s, item.uid, id)
     }
+    strategy.onMonth?.(s)
     step(s)
   }
   return s

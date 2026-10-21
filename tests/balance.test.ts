@@ -13,7 +13,7 @@ function summarise(make: (seed: number) => Strategy) {
   for (let seed = 1; seed <= RUNS; seed++) {
     const r = computeResult(playThrough(seed, make(seed)))
     ratings[r.rating]++
-    total += r.total
+    total += r.score
     if (r.endedEarly) early++
   }
   return { ratings, early, mean: total / RUNS }
@@ -36,12 +36,13 @@ describe('balance', () => {
 
   it('rates a government that never acts below history', () => {
     const sum = summarise(() => UNTOUCHED)
-    expect(sum.ratings.S + sum.ratings.A + sum.ratings.B).toBe(0)
+    expect(sum.mean).toBeLessThan(summarise(() => FOLLOW_HISTORY).mean - 2)
+    expect(sum.ratings.S + sum.ratings.A).toBe(0)
   })
 
   it('rewards reading the demand panel', () => {
     const thoughtful = summarise(() => THOUGHTFUL)
-    expect(thoughtful.mean).toBeGreaterThan(0)
+    expect(thoughtful.mean).toBeGreaterThan(summarise(() => FOLLOW_HISTORY).mean)
     expect(thoughtful.ratings.C + thoughtful.ratings.D).toBe(0)
     const skilled = summarise(() => SKILLED)
     expect(skilled.ratings.A + skilled.ratings.S).toBeGreaterThanOrEqual(RUNS * 0.8)

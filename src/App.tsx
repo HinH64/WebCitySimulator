@@ -28,7 +28,7 @@ export function App() {
       seed: game.seed,
       title: r.title,
       rating: r.rating,
-      total: Math.round(r.total),
+      score: Math.round(r.score),
       endYear: r.endYear,
     })
     setScreen({ kind: 'end', game })

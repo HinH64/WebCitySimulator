@@ -5,7 +5,7 @@ export interface PastTerm {
   seed: number
   title: string
   rating: Rating
-  total: number
+  score: number
   endYear: number
 }
 
@@ -26,7 +26,7 @@ export const DEFAULT_SETTINGS: Settings = {
   pauseWhileEditing: false,
 }
 
-const TERMS_KEY = 'parallel-hk.terms.v2'
+const TERMS_KEY = 'parallel-hk.terms.v3'
 const SPEED_KEY = 'parallel-hk.speed.v1'
 const SETTINGS_KEY = 'parallel-hk.settings.v1'
 const MAX_TERMS = 20

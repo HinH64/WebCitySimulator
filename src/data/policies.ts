@@ -52,7 +52,10 @@ export interface PolicyDef {
   levels: { id: string; label: string }[]
   /** Before this month the policy cannot take effect. */
   availableFrom: YearMonth
-  /** Real level over time; each entry starts at its month. */
+  /**
+   * Real level over time; each entry starts at its month. A change that comes with a decision starts
+   * the month after the decision comes up, which is when an answer given straight away takes effect.
+   */
   real: { from: YearMonth; level: string }[]
   effects: Record<string, PolicyEffect>
 }
@@ -70,7 +73,7 @@ export const POLICIES: PolicyDef[] = [
     availableFrom: [1997, 7],
     real: [
       { from: [1997, 7], level: 'off' },
-      { from: [1997, 10], level: 'full' },
+      { from: [1997, 11], level: 'full' },
       { from: [2000, 7], level: 'off' },
     ],
     effects: {
@@ -91,8 +94,8 @@ export const POLICIES: PolicyDef[] = [
     availableFrom: [1997, 7],
     real: [
       { from: [1997, 7], level: 'on' },
-      { from: [2002, 11], level: 'off' },
-      { from: [2011, 10], level: 'on' },
+      { from: [2002, 12], level: 'off' },
+      { from: [2011, 11], level: 'on' },
     ],
     effects: {
       off: {},
@@ -112,8 +115,8 @@ export const POLICIES: PolicyDef[] = [
     availableFrom: [1997, 7],
     real: [
       { from: [1997, 7], level: 'p50' },
-      { from: [2014, 12], level: 'p60' },
-      { from: [2018, 12], level: 'p70' },
+      { from: [2015, 1], level: 'p60' },
+      { from: [2019, 1], level: 'p70' },
     ],
     effects: {
       p50: { publicLandShare: 0.5 },
@@ -132,7 +135,7 @@ export const POLICIES: PolicyDef[] = [
     availableFrom: [2022, 10],
     real: [
       { from: [1997, 7], level: 'off' },
-      { from: [2022, 10], level: 'on' },
+      { from: [2022, 11], level: 'on' },
     ],
     effects: { off: {}, on: { cost: 50, publicUnitsFast: 0.6 } },
   },
@@ -160,8 +163,8 @@ export const POLICIES: PolicyDef[] = [
     availableFrom: [1997, 7],
     real: [
       { from: [1997, 7], level: 'off' },
-      { from: [2010, 11], level: 'on' },
-      { from: [2024, 2], level: 'off' },
+      { from: [2010, 12], level: 'on' },
+      { from: [2024, 3], level: 'off' },
     ],
     effects: {
       off: {},
@@ -223,7 +226,7 @@ export const POLICIES: PolicyDef[] = [
     availableFrom: [1997, 7],
     real: [
       { from: [1997, 7], level: 'off' },
-      { from: [2013, 3], level: 'standard' },
+      { from: [2013, 4], level: 'standard' },
     ],
     effects: {
       off: {},
@@ -243,7 +246,7 @@ export const POLICIES: PolicyDef[] = [
     availableFrom: [1997, 7],
     real: [
       { from: [1997, 7], level: 'off' },
-      { from: [2006, 6], level: 'standard' },
+      { from: [2006, 7], level: 'standard' },
       { from: [2022, 12], level: 'boost' },
     ],
     effects: {
@@ -266,7 +269,7 @@ export const POLICIES: PolicyDef[] = [
     availableFrom: [1997, 7],
     real: [
       { from: [1997, 7], level: 'none' },
-      { from: [2015, 11], level: 'professional' },
+      { from: [2015, 12], level: 'professional' },
     ],
     effects: {
       none: {},

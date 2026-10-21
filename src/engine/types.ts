@@ -88,37 +88,59 @@ export interface HistoryChoice {
   /** "Keep things as they are": taken when the deadline passes. */
   defaultOptionId: string
   reveal: string
+  /** Comes up only while the player's policy is at one of these levels. */
+  onlyIf?: { policy: string; levels: string[] }
 }
 
-export interface ParallelContext {
+/** What city events can look at: the city's own state, never the real history. */
+export interface CityContext {
   t: number
   year: number
+  month: number
   m: Metrics
-  real: Metrics
-  dev: Deviations
   quality: Record<DeptId, number>
-  attract: number
+  funding: Record<DeptId, number>
+  policy: (id: string) => string
   reserves: number
-  realReserves: number
   debtRatio: number
   yearlySpending: number
   /** The treasury ran dry this month and had to borrow. */
   autoBorrowed: boolean
+  /** People moving in minus moving out over the last 12 months, excluding one-way permits (萬). */
+  migration12: number
+  /** The city one, two, three and five years ago (from the yearly snapshots). */
+  ago: (years: 1 | 2 | 3 | 5) => Metrics
 }
 
+/** Follows from the city's state when it crosses a threshold. */
 export interface ParallelEvent {
   id: string
   /** Chance per year while the condition holds. */
   p: number
   /** Months before it can happen again; omitted means once per game. */
   cooldown?: number
-  condition: (c: ParallelContext) => boolean
+  condition: (c: CityContext) => boolean
   title: string
-  text: string | ((c: ParallelContext) => string)
+  text: string | ((c: CityContext) => string)
   tone: 'good' | 'bad' | 'neutral'
   effects?: Effect[]
   options?: ChoiceOption[]
   defaultOptionId?: string
+}
+
+export type CityEventCategory = 'transport' | 'housing' | 'health' | 'economy' | 'environment' | 'weather' | 'education' | 'society'
+
+/** Everyday news. One is drawn at random now and then, weighted by the city's state. */
+export interface CityEvent {
+  id: string
+  category: CityEventCategory
+  /** Relative chance of being drawn; 0 means it cannot happen now. */
+  weight: (c: CityContext) => number
+  /** Months before it can happen again. */
+  cooldown: number
+  text: string | ((c: CityContext) => string)
+  tone: 'good' | 'bad' | 'neutral'
+  effects?: Effect[]
 }
 
 export interface InboxItem {
@@ -144,13 +166,14 @@ export interface ChoiceRecord {
   expired: boolean
 }
 
-export type NewsKind = 'history' | 'inbox' | 'decision' | 'parallel' | 'report' | 'system'
+export type NewsKind = 'history' | 'inbox' | 'decision' | 'parallel' | 'city' | 'milestone' | 'report' | 'system'
 
 export interface NewsItem {
   t: number
   kind: NewsKind
   text: string
   tone?: 'good' | 'bad' | 'neutral'
+  category?: CityEventCategory
 }
 
 export interface Bond {
@@ -189,9 +212,15 @@ export interface YearAccumulator {
   months: number
 }
 
+export interface GameOptions {
+  /** City events and city dynamics; off reproduces history exactly when following it. */
+  events: boolean
+}
+
 export interface GameState {
   seed: number
   rng: number
+  options: GameOptions
   /** Month about to be simulated. */
   t: number
   status: 'running' | 'ended'
@@ -204,8 +233,8 @@ export interface GameState {
   taxes: Partial<Record<TaxId, number>>
   /** Tax rates as people react to them (moves gradually towards the actual rate). */
   felt: Record<TaxId, number>
-  /** Undefined means the policy follows what happened in history. */
-  policies: Record<string, string | undefined>
+  /** Policy levels; they change only when the player changes them or answers a decision. */
+  policies: Record<string, string>
   /** Level effects of policies as they phase in. */
   policyLevels: { unemployment: number; welfare: number; attract: number; pm10: number; green: number }
   sectors: Record<SectorId, number>
@@ -222,6 +251,10 @@ export interface GameState {
   choices: ChoiceRecord[]
   flags: Record<string, string>
   cooldowns: Record<string, number>
+  /** Last 12 months of migration excluding one-way permits (萬). */
+  migrationLog: number[]
+  /** Highest step reached by each milestone series. */
+  milestones: Record<string, number>
   news: NewsItem[]
   signals: Signal[]
 
