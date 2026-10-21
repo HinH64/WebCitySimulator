@@ -1,0 +1,821 @@
+import type { HistoryChoice, HistoryEvent, ParallelEvent } from '../engine/types'
+
+export const HISTORY_EVENTS: HistoryEvent[] = [
+  { id: 'handover', year: 1997, month: 7, text: '7 月 1 日，香港特別行政區成立。你的任期由這一刻開始。' },
+  { id: 'afc', year: 1997, month: 10, text: '亞洲金融風暴蔓延至香港，恒生指數急挫，銀行同業拆息一度飆升。' },
+  { id: 'birdflu', year: 1997, month: 12, text: '香港發現 H5N1 禽流感病毒，政府撲殺全港約 130 萬隻雞。' },
+  { id: 'tcl', year: 1998, month: 6, text: '東涌綫及機場快綫通車。' },
+  { id: 'airport', year: 1998, month: 7, text: '赤鱲角新機場啟用，啟德機場關閉。' },
+  {
+    id: 'tracker',
+    year: 1999,
+    month: 11,
+    text: '盈富基金上市，政府開始分批出售 1998 年入市時購入的股票。',
+    requires: { intervene: ['buy'] },
+  },
+  { id: 'dotcom', year: 2000, month: 4, text: '科網股泡沫在全球爆破，股市由高位回落。' },
+  { id: 'sep11', year: 2001, month: 9, text: '美國發生九一一事件，環球經濟放緩。' },
+  { id: 'tkol', year: 2002, month: 8, text: '將軍澳綫通車。' },
+  { id: 'sars', year: 2003, month: 3, text: '非典型肺炎（SARS）爆發，全港 1,755 人感染、299 人死亡，經濟大受打擊。' },
+  { id: 'ivs', year: 2003, month: 7, text: '內地旅客「個人遊」計劃開始，訪港旅客急增。' },
+  { id: 'westrail', year: 2003, month: 12, text: '西鐵通車，連接屯門、元朗與市區。' },
+  { id: 'mosl', year: 2004, month: 12, text: '馬鞍山鐵路通車。' },
+  {
+    id: 'disneyOpen',
+    year: 2005,
+    month: 9,
+    text: '香港迪士尼樂園開幕。',
+    requires: { disney: ['build'] },
+    altText: '竹篙灣原本預留給主題樂園的土地仍然空置。',
+  },
+  { id: 'lmc', year: 2007, month: 8, text: '落馬洲支綫通車，往來內地多了一個鐵路口岸。' },
+  { id: 'merger', year: 2007, month: 12, text: '地鐵與九廣鐵路合併。' },
+  { id: 'gfc', year: 2008, month: 9, text: '雷曼兄弟倒閉，金融海嘯爆發，不少購買迷你債券的市民蒙受損失。' },
+  { id: 'h1n1', year: 2009, month: 5, text: '香港出現首宗人類豬型流感個案。' },
+  { id: 'ksl', year: 2009, month: 8, text: '九龍南綫通車，東鐵綫與西鐵綫接通。' },
+  { id: 'minwage', year: 2011, month: 5, text: '法定最低工資實施，首個水平為每小時 28 元。' },
+  { id: 'povertyLine', year: 2013, month: 9, text: '政府公布首條官方貧窮綫。' },
+  { id: 'wil', year: 2014, month: 12, text: '西港島綫通車。' },
+  { id: 'ktle', year: 2016, month: 10, text: '觀塘綫延綫通車。' },
+  { id: 'sil', year: 2016, month: 12, text: '南港島綫通車。' },
+  { id: 'hato', year: 2017, month: 8, text: '超強颱風天鴿襲港，天文台發出十號颶風信號。' },
+  { id: 'mangkhut', year: 2018, month: 9, text: '超強颱風山竹襲港，十號風球持續約 10 小時，全港大量塌樹。' },
+  {
+    id: 'xrl',
+    year: 2018,
+    month: 9,
+    text: '廣深港高鐵香港段通車。',
+    requires: { tenProjects: ['all'] },
+    altText: '高鐵香港段沒有興建，往來內地仍以東鐵和直通車為主。',
+  },
+  {
+    id: 'hzmb',
+    year: 2018,
+    month: 10,
+    text: '港珠澳大橋通車。',
+    requires: { tenProjects: ['all'] },
+    altText: '港珠澳大橋沒有興建。',
+  },
+  { id: 'econ2019', year: 2019, month: 12, text: '受中美貿易摩擦等因素影響，全年經濟收縮約 1.7%。' },
+  { id: 'covid', year: 2020, month: 1, text: '新冠病毒疫情爆發，各行各業受到嚴重衝擊。' },
+  {
+    id: 'tml1',
+    year: 2020,
+    month: 2,
+    text: '屯馬綫一期通車。',
+    requires: { tenProjects: ['all', 'some'] },
+    altText: '沙中綫沒有興建，東西兩邊的鐵路仍未接通。',
+  },
+  {
+    id: 'tml',
+    year: 2021,
+    month: 6,
+    text: '屯馬綫全綫通車，成為港鐵最長的路綫。',
+    requires: { tenProjects: ['all', 'some'] },
+  },
+  { id: 'wave5', year: 2022, month: 2, text: '第五波新冠疫情爆發，單日確診數以萬計。' },
+  {
+    id: 'ewl',
+    year: 2022,
+    month: 5,
+    text: '東鐵綫過海段通車，東鐵綫延伸至金鐘。',
+    requires: { tenProjects: ['all', 'some'] },
+  },
+  { id: 'reopen', year: 2023, month: 2, text: '與內地全面恢復通關。' },
+  { id: 'rainstorm', year: 2023, month: 9, text: '世紀暴雨：天文台錄得有紀錄以來最高的每小時雨量，多區水浸。' },
+  {
+    id: 'lphIntake',
+    year: 2025,
+    month: 3,
+    text: '首批簡約公屋入伙。',
+    requires: { lph: ['build'] },
+  },
+  { id: 'now', year: 2026, month: 10, text: '2026 年 10 月：回到現在。看看你的香港跟真實的香港有何不同。' },
+]
+
+export const HISTORY_CHOICES: HistoryChoice[] = [
+  {
+    id: 'hos85',
+    year: 1997,
+    month: 10,
+    title: '建屋目標',
+    text: '樓價處於高位，輪候公屋要等約 6 年。要不要訂下每年供應不少於 85,000 個住宅單位的目標？',
+    options: [
+      {
+        id: 'target',
+        label: '訂下「八萬五」目標',
+        effects: [
+          { k: 'housing', v: 9, at: 2, over: 6 },
+          { k: 'economy', v: -5, at: 1, over: 4 },
+          { k: 'finance', v: -2, at: 1, over: 4 },
+          { k: 'livelihood', v: -1, at: 1, over: 3 },
+        ],
+      },
+      {
+        id: 'moderate',
+        label: '溫和增加供應，不設硬指標',
+        effects: [
+          { k: 'housing', v: 5, at: 2, over: 6 },
+          { k: 'economy', v: -2, at: 1, over: 4 },
+          { k: 'finance', v: -1, at: 1, over: 4 },
+        ],
+      },
+      { id: 'none', label: '維持原有供應', effects: [] },
+    ],
+    realOptionId: 'target',
+    reveal: '1997 年施政報告提出每年供應不少於 85,000 個住宅單位。其後樓價大跌，政府在 2000 年表示不再提及這個目標。',
+  },
+  {
+    id: 'intervene',
+    year: 1998,
+    month: 8,
+    title: '金融保衛戰',
+    text: '國際炒家同時沽空港元和港股，恒生指數跌至約 6,600 點。要動用外匯基金入市嗎？',
+    options: [
+      {
+        id: 'buy',
+        label: '動用外匯基金入市購買港股',
+        effects: [
+          { k: 'economy', v: 4, at: 0, over: 2 },
+          { k: 'finance', v: 1, at: 2, over: 3 },
+        ],
+      },
+      {
+        id: 'rates',
+        label: '只靠利率機制捍衛聯繫匯率',
+        effects: [
+          { k: 'economy', v: -2, at: 0, over: 3 },
+          { k: 'housing', v: 2, at: 0, over: 3 },
+        ],
+      },
+      {
+        id: 'none',
+        label: '不干預，任由市場調整',
+        effects: [
+          { k: 'economy', v: -4, at: 0, over: 3 },
+          { k: 'housing', v: 1, at: 0, over: 2 },
+        ],
+      },
+    ],
+    realOptionId: 'buy',
+    reveal: '1998 年 8 月，政府動用外匯基金約 1,180 億港元入市購買港股。其後透過盈富基金分批出售，最終錄得盈利。',
+  },
+  {
+    id: 'disney',
+    year: 1999,
+    month: 11,
+    title: '主題樂園',
+    text: '與華特迪士尼公司商討在竹篙灣興建主題樂園，政府要投入大量資金和土地。',
+    options: [
+      {
+        id: 'build',
+        label: '合作興建',
+        effects: [
+          { k: 'economy', v: 4, at: 6, over: 6 },
+          { k: 'finance', v: -3, at: 1, over: 5 },
+          { k: 'environment', v: -1, at: 2, over: 3 },
+        ],
+      },
+      { id: 'skip', label: '不興建', effects: [] },
+    ],
+    realOptionId: 'build',
+    reveal: '1999 年 11 月，政府與迪士尼達成協議，香港迪士尼樂園於 2005 年 9 月開幕。',
+  },
+  {
+    id: 'hosStop',
+    year: 2002,
+    month: 11,
+    title: '居屋去留',
+    text: '樓價比 1997 年高位跌了約六成，負資產業主眾多。要停建居屋，讓私人樓市回穩嗎？',
+    options: [
+      {
+        id: 'stop',
+        label: '停建及停售居屋',
+        effects: [
+          { k: 'economy', v: 3, at: 0, over: 3 },
+          { k: 'housing', v: -6, at: 3, over: 8 },
+          { k: 'livelihood', v: -1, at: 3, over: 5 },
+        ],
+      },
+      {
+        id: 'reduce',
+        label: '減少居屋但不停建',
+        effects: [
+          { k: 'economy', v: 1.5, at: 0, over: 3 },
+          { k: 'housing', v: -2, at: 3, over: 6 },
+        ],
+      },
+      {
+        id: 'keep',
+        label: '繼續興建居屋',
+        effects: [
+          { k: 'economy', v: -1, at: 0, over: 3 },
+          { k: 'housing', v: 1, at: 3, over: 6 },
+        ],
+      },
+    ],
+    realOptionId: 'stop',
+    reveal: '2002 年 11 月，政府公布一系列穩定樓市措施（俗稱「孫九招」），包括由 2003 年起停建及停售居屋。居屋在 2011 年才宣布復建。',
+  },
+  {
+    id: 'gst',
+    year: 2006,
+    month: 7,
+    title: '擴闊稅基',
+    text: '香港稅基狹窄，收入依賴賣地和利得稅。要開徵 5% 商品及服務稅嗎？',
+    options: [
+      {
+        id: 'levy',
+        label: '開徵商品及服務稅',
+        effects: [
+          { k: 'finance', v: 8, at: 1, over: 6 },
+          { k: 'economy', v: -2, at: 0, over: 3 },
+          { k: 'livelihood', v: -2, at: 0, over: 3 },
+        ],
+      },
+      { id: 'shelve', label: '擱置', effects: [] },
+    ],
+    realOptionId: 'shelve',
+    reveal: '2006 年 7 月政府就開徵商品及服務稅展開諮詢，同年 12 月宣布擱置。',
+  },
+  {
+    id: 'tenProjects',
+    year: 2007,
+    month: 10,
+    title: '大型基建',
+    text: '經濟復甦，庫房回復盈餘。要推展一系列大型基建嗎？包括沙中綫、高鐵香港段和港珠澳大橋。',
+    options: [
+      {
+        id: 'all',
+        label: '全面推展',
+        effects: [
+          { k: 'transport', v: 10, at: 3, over: 9 },
+          { k: 'economy', v: 3, at: 2, over: 8 },
+          { k: 'finance', v: -6, at: 1, over: 9 },
+          { k: 'environment', v: -2, at: 2, over: 6 },
+        ],
+      },
+      {
+        id: 'some',
+        label: '只建沙中綫，不建高鐵和大橋',
+        effects: [
+          { k: 'transport', v: 6, at: 3, over: 9 },
+          { k: 'economy', v: 1, at: 2, over: 8 },
+          { k: 'finance', v: -3, at: 1, over: 9 },
+          { k: 'environment', v: -1, at: 2, over: 6 },
+        ],
+      },
+      { id: 'defer', label: '暫緩', effects: [] },
+    ],
+    realOptionId: 'all',
+    reveal: '2007 年施政報告提出十大基建。高鐵香港段及港珠澳大橋在 2018 年通車，沙中綫在 2021–2022 年全面通車。',
+  },
+  {
+    id: 'ssd',
+    year: 2010,
+    month: 11,
+    title: '樓價急升',
+    text: '低息環境下樓價急升，兩年內升了約五成。要怎樣應對？',
+    options: [
+      {
+        id: 'ssd',
+        label: '推出額外印花稅，打擊短期炒賣',
+        effects: [
+          { k: 'housing', v: 2, at: 0, over: 4 },
+          { k: 'finance', v: 2, at: 0, over: 6 },
+          { k: 'economy', v: -1, at: 0, over: 3 },
+        ],
+      },
+      {
+        id: 'land',
+        label: '不加稅，改為大幅增加賣地',
+        effects: [
+          { k: 'housing', v: 3, at: 2, over: 5 },
+          { k: 'environment', v: -2, at: 2, over: 4 },
+          { k: 'finance', v: 1, at: 0, over: 4 },
+        ],
+      },
+      {
+        id: 'none',
+        label: '不干預',
+        effects: [
+          { k: 'housing', v: -2, at: 0, over: 4 },
+          { k: 'economy', v: 1, at: 0, over: 3 },
+        ],
+      },
+    ],
+    realOptionId: 'ssd',
+    reveal: '2010 年 11 月推出額外印花稅，其後在 2012 年推出買家印花稅、2013 年推出雙倍印花稅。這些措施在 2024 年 2 月全面撤銷。',
+  },
+  {
+    id: 'cash6000',
+    year: 2011,
+    month: 3,
+    title: '庫房盈餘',
+    text: '庫房錄得大額盈餘，社會要求「還富於民」。這筆錢怎樣用？',
+    options: [
+      {
+        id: 'cash',
+        label: '每名成年永久居民派 6,000 元',
+        effects: [
+          { k: 'livelihood', v: 1.5, at: 0, over: 1 },
+          { k: 'economy', v: 0.5, at: 0, over: 1 },
+          { k: 'finance', v: -3, at: 0, over: 1 },
+        ],
+      },
+      {
+        id: 'care',
+        label: '撥作長遠醫療及安老服務',
+        effects: [
+          { k: 'livelihood', v: 3, at: 1, over: 5 },
+          { k: 'finance', v: -3, at: 0, over: 1 },
+        ],
+      },
+      { id: 'save', label: '撥入儲備', effects: [] },
+    ],
+    realOptionId: 'cash',
+    reveal: '2011 年財政預算案原本建議向強積金戶口注資 6,000 元，在社會反對後改為向年滿 18 歲的香港永久性居民派發 6,000 元。',
+  },
+  {
+    id: 'hosResume',
+    year: 2011,
+    month: 10,
+    title: '居屋復建',
+    text: '樓價再創新高，年輕家庭難以置業。要復建居屋嗎？',
+    options: [
+      {
+        id: 'resume',
+        label: '復建居屋',
+        effects: [
+          { k: 'housing', v: 4, at: 4, over: 6 },
+          { k: 'finance', v: -1, at: 1, over: 4 },
+        ],
+      },
+      { id: 'no', label: '不復建，維持私人市場主導', effects: [] },
+    ],
+    realOptionId: 'resume',
+    reveal: '2011 年施政報告宣布復建居屋，復建後首批居屋單位在 2014 年推出發售。',
+  },
+  {
+    id: 'oala',
+    year: 2012,
+    month: 10,
+    title: '長者支援',
+    text: '人口急速老化，不少長者生活困難。要怎樣加強支援？',
+    options: [
+      {
+        id: 'oala',
+        label: '推出經濟審查的長者生活津貼',
+        effects: [
+          { k: 'livelihood', v: 3, at: 0, over: 4 },
+          { k: 'finance', v: -3, at: 0, over: 6 },
+        ],
+      },
+      {
+        id: 'universal',
+        label: '推行全民退休保障',
+        effects: [
+          { k: 'livelihood', v: 5, at: 1, over: 6 },
+          { k: 'finance', v: -7, at: 1, over: 8 },
+        ],
+      },
+      { id: 'none', label: '維持現有安排', effects: [] },
+    ],
+    realOptionId: 'oala',
+    reveal: '2012 年施政報告提出長者生活津貼，在 2013 年 4 月推出。全民退休保障曾在 2015–2016 年諮詢，政府最終沒有推行。',
+  },
+  {
+    id: 'cleanAir',
+    year: 2013,
+    month: 3,
+    title: '空氣污染',
+    text: '路邊空氣污染嚴重，舊柴油車是主要來源之一。要推出多進取的空氣政策？',
+    options: [
+      {
+        id: 'plan',
+        label: '公布清新空氣藍圖，資助淘汰舊柴油車',
+        effects: [
+          { k: 'environment', v: 4, at: 1, over: 6 },
+          { k: 'finance', v: -1, at: 0, over: 4 },
+        ],
+      },
+      {
+        id: 'stronger',
+        label: '更進取：加設低排放區，大幅收緊排放標準',
+        effects: [
+          { k: 'environment', v: 6, at: 1, over: 6 },
+          { k: 'economy', v: -1, at: 0, over: 3 },
+          { k: 'finance', v: -2, at: 0, over: 4 },
+        ],
+      },
+      { id: 'none', label: '維持現有措施', effects: [] },
+    ],
+    realOptionId: 'plan',
+    reveal: '2013 年 3 月公布《香港清新空氣藍圖》，其後資助車主淘汰歐盟四期以前的柴油商業車。',
+  },
+  {
+    id: 'lths',
+    year: 2014,
+    month: 12,
+    title: '長遠房屋策略',
+    text: '公屋輪候時間持續上升。未來十年的房屋供應目標怎樣定？',
+    options: [
+      {
+        id: 'p60',
+        label: '十年供應 47 萬個單位，公私營 60:40',
+        effects: [
+          { k: 'housing', v: 4, at: 4, over: 7 },
+          { k: 'finance', v: -1, at: 1, over: 6 },
+        ],
+      },
+      {
+        id: 'p70',
+        label: '公營比例提高至 70%',
+        effects: [
+          { k: 'housing', v: 6, at: 4, over: 7 },
+          { k: 'finance', v: -2, at: 1, over: 6 },
+          { k: 'economy', v: -1, at: 2, over: 4 },
+        ],
+      },
+      {
+        id: 'market',
+        label: '維持市場主導，不設公營目標',
+        effects: [
+          { k: 'housing', v: -1, at: 4, over: 6 },
+          { k: 'economy', v: 1, at: 1, over: 4 },
+        ],
+      },
+    ],
+    realOptionId: 'p60',
+    reveal: '2014 年 12 月公布《長遠房屋策略》，以十年供應 47 萬個單位、公私營比例 60:40 為目標；其後公營比例調升至 70:30。',
+  },
+  {
+    id: 'lantau',
+    year: 2018,
+    month: 10,
+    title: '新土地從何來',
+    text: '土地供應不足。下一批大型新土地從哪裡來？',
+    options: [
+      {
+        id: 'reclaim',
+        label: '在中部水域填海興建人工島',
+        effects: [
+          { k: 'finance', v: -2, at: 1, over: 6 },
+          { k: 'environment', v: -1, at: 3, over: 4 },
+          { k: 'housing', v: 2, at: 8, over: 6 },
+        ],
+      },
+      {
+        id: 'brownfield',
+        label: '優先發展棕地和新界北',
+        effects: [
+          { k: 'housing', v: 3, at: 4, over: 5 },
+          { k: 'environment', v: -1, at: 2, over: 4 },
+          { k: 'finance', v: -1, at: 1, over: 5 },
+        ],
+      },
+      { id: 'none', label: '擱置大型新土地計劃', effects: [] },
+    ],
+    realOptionId: 'reclaim',
+    reveal: '2018 年施政報告提出「明日大嶼願景」，在中部水域填海興建人工島；2021 年再公布北部都會區發展策略。',
+  },
+  {
+    id: 'cash10000',
+    year: 2020,
+    month: 2,
+    title: '疫下紓困',
+    text: '經濟受疫情和外圍因素打擊。要怎樣紓緩市民壓力？',
+    options: [
+      {
+        id: 'all',
+        label: '向 18 歲或以上永久居民每人派一萬元',
+        effects: [
+          { k: 'livelihood', v: 2, at: 0, over: 1 },
+          { k: 'economy', v: 2, at: 0, over: 2 },
+          { k: 'finance', v: -6, at: 0, over: 1 },
+        ],
+      },
+      {
+        id: 'targeted',
+        label: '只資助基層及失業人士',
+        effects: [
+          { k: 'livelihood', v: 2, at: 0, over: 2 },
+          { k: 'economy', v: 1, at: 0, over: 2 },
+          { k: 'finance', v: -2.5, at: 0, over: 1 },
+        ],
+      },
+      { id: 'none', label: '不派錢', effects: [] },
+    ],
+    realOptionId: 'all',
+    reveal: '2020 年財政預算案向 18 歲或以上的香港永久性居民每人派發一萬元。',
+  },
+  {
+    id: 'nm',
+    year: 2021,
+    month: 10,
+    title: '北部發展',
+    text: '新界北有大片棕地和農地，又接近深圳。要怎樣規劃？',
+    options: [
+      {
+        id: 'go',
+        label: '推展北部都會區',
+        effects: [
+          { k: 'economy', v: 2, at: 3, over: 6 },
+          { k: 'housing', v: 3, at: 3, over: 6 },
+          { k: 'environment', v: -2, at: 2, over: 5 },
+          { k: 'finance', v: -3, at: 1, over: 6 },
+        ],
+      },
+      {
+        id: 'small',
+        label: '只發展已規劃的新發展區',
+        effects: [
+          { k: 'housing', v: 1, at: 3, over: 5 },
+          { k: 'environment', v: -0.5, at: 2, over: 4 },
+          { k: 'finance', v: -1, at: 1, over: 5 },
+        ],
+      },
+      { id: 'none', label: '擱置', effects: [] },
+    ],
+    realOptionId: 'go',
+    reveal: '2021 年施政報告公布《北部都會區發展策略》，2023 年再公布《北部都會區行動綱領》。',
+  },
+  {
+    id: 'lph',
+    year: 2022,
+    month: 10,
+    title: '縮短輪候',
+    text: '公屋輪候時間超過 6 年，大量家庭住在劏房。要怎樣盡快改善？',
+    options: [
+      {
+        id: 'build',
+        label: '興建約 3 萬個簡約公屋單位',
+        effects: [
+          { k: 'housing', v: 4, at: 1, over: 3 },
+          { k: 'finance', v: -2, at: 0, over: 3 },
+        ],
+      },
+      {
+        id: 'traditional',
+        label: '集中資源加快興建傳統公屋',
+        effects: [
+          { k: 'housing', v: 3, at: 3, over: 4 },
+          { k: 'finance', v: -1.5, at: 0, over: 4 },
+        ],
+      },
+      { id: 'none', label: '維持現有計劃', effects: [] },
+    ],
+    realOptionId: 'build',
+    reveal: '2022 年施政報告提出在五年內興建約 3 萬個簡約公屋單位，首批在 2025 年入伙。',
+  },
+  {
+    id: 'derating',
+    year: 2024,
+    month: 2,
+    title: '樓市回落',
+    text: '樓價自高位回落，成交疏落。要撤銷樓市「辣招」嗎？',
+    options: [
+      {
+        id: 'all',
+        label: '全面撤銷',
+        effects: [
+          { k: 'economy', v: 1, at: 0, over: 2 },
+          { k: 'finance', v: -1, at: 0, over: 2 },
+          { k: 'housing', v: -1, at: 0, over: 2 },
+        ],
+      },
+      {
+        id: 'partial',
+        label: '只撤銷部分措施',
+        effects: [
+          { k: 'economy', v: 0.5, at: 0, over: 2 },
+          { k: 'housing', v: -0.5, at: 0, over: 2 },
+        ],
+      },
+      { id: 'keep', label: '保留所有措施', effects: [] },
+    ],
+    realOptionId: 'all',
+    reveal: '2024 年 2 月財政預算案宣布即時撤銷所有住宅物業需求管理措施。',
+  },
+]
+
+export const PARALLEL_EVENTS: ParallelEvent[] = [
+  {
+    id: 'fiscalCrisis',
+    p: 1,
+    cooldown: 4,
+    condition: (c) => c.values.finance <= 15,
+    title: '財政告急',
+    text: '財政儲備跌至危險水平，評級機構發出警告。',
+    options: [
+      {
+        id: 'cut',
+        label: '削減公共開支',
+        effects: [
+          { k: 'livelihood', v: -3, at: 0, over: 2 },
+          { k: 'finance', v: 4, at: 0, over: 2 },
+        ],
+      },
+      {
+        id: 'tax',
+        label: '加稅',
+        effects: [
+          { k: 'economy', v: -3, at: 0, over: 2 },
+          { k: 'finance', v: 4, at: 0, over: 2 },
+        ],
+      },
+      {
+        id: 'bond',
+        label: '發行政府債券，日後償還',
+        effects: [
+          { k: 'finance', v: 5, at: 0, over: 1 },
+          { k: 'finance', v: -6, at: 2, over: 4 },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'oversupply',
+    p: 0.35,
+    minYear: 1999,
+    condition: (c) => c.gap.housing >= 10,
+    title: '供應過剩，樓價急跌',
+    text: '新落成單位大增，樓價跌得比真實歷史更急，負資產業主增加。',
+    effects: [
+      { k: 'economy', v: -3, at: 0, over: 2 },
+      { k: 'livelihood', v: -1, at: 0, over: 2 },
+    ],
+  },
+  {
+    id: 'judicialReview',
+    p: 0.4,
+    cooldown: 6,
+    condition: (c) => c.alloc.housing >= c.realAlloc.housing + 3 && c.gap.environment <= -3,
+    title: '環團申請司法覆核',
+    text: '環保團體認為新發展區的環境評估不足，申請司法覆核。',
+    options: [
+      {
+        id: 'revise',
+        label: '修訂方案，擴大保育範圍',
+        effects: [
+          { k: 'housing', v: -2, at: 1, over: 2 },
+          { k: 'environment', v: 2, at: 0, over: 2 },
+        ],
+      },
+      {
+        id: 'fight',
+        label: '據理力爭，工程因而延誤',
+        effects: [
+          { k: 'housing', v: -1, at: 1, over: 2 },
+          { k: 'finance', v: -1, at: 0, over: 1 },
+        ],
+      },
+      {
+        id: 'withdraw',
+        label: '撤回項目',
+        effects: [
+          { k: 'housing', v: -4, at: 1, over: 3 },
+          { k: 'environment', v: 3, at: 0, over: 2 },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'overrun',
+    p: 0.3,
+    cooldown: 5,
+    condition: (c) => c.alloc.transport >= c.realAlloc.transport + 3,
+    title: '鐵路工程超支',
+    text: '你加快推動的鐵路工程出現延誤，成本超出預算。',
+    options: [
+      { id: 'fund', label: '追加撥款', effects: [{ k: 'finance', v: -3, at: 0, over: 1 }] },
+      { id: 'cut', label: '削減工程規模', effects: [{ k: 'transport', v: -3, at: 0, over: 2 }] },
+      {
+        id: 'delay',
+        label: '押後通車',
+        effects: [
+          { k: 'transport', v: -1.5, at: 0, over: 2 },
+          { k: 'finance', v: -1, at: 0, over: 1 },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'noRail',
+    p: 0.4,
+    cooldown: 6,
+    condition: (c) => c.gap.housing >= 8 && c.gap.transport <= 0,
+    title: '新市鎮缺乏配套',
+    text: '新屋邨陸續入伙，但鐵路和社區設施未跟上，不少居民每天通勤超過兩小時。',
+    effects: [
+      { k: 'livelihood', v: -2, at: 0, over: 2 },
+      { k: 'transport', v: -1, at: 0, over: 2 },
+    ],
+  },
+  {
+    id: 'newTown',
+    p: 0.6,
+    condition: (c) => c.gap.housing >= 6 && c.gap.transport >= 6,
+    title: '新發展區配套完善',
+    text: '新發展區與鐵路同步落成，居民在家附近就能上班上學。',
+    effects: [
+      { k: 'livelihood', v: 2, at: 0, over: 2 },
+      { k: 'economy', v: 1, at: 0, over: 2 },
+    ],
+  },
+  {
+    id: 'brainDrain',
+    p: 0.35,
+    cooldown: 5,
+    condition: (c) => c.gap.livelihood <= -8 || c.gap.housing <= -10,
+    title: '人才流失',
+    text: '居住環境和社會服務比真實歷史更差，不少專業人士選擇移居外地。',
+    effects: [{ k: 'economy', v: -3, at: 0, over: 2 }],
+  },
+  {
+    id: 'surplus',
+    p: 0.5,
+    cooldown: 6,
+    condition: (c) => c.gap.finance >= 15,
+    title: '儲備比歷史充裕',
+    text: '庫房的錢比真實歷史多，社會要求善用儲備。',
+    options: [
+      {
+        id: 'cash',
+        label: '向市民派錢',
+        effects: [
+          { k: 'livelihood', v: 2, at: 0, over: 1 },
+          { k: 'finance', v: -4, at: 0, over: 1 },
+        ],
+      },
+      {
+        id: 'invest',
+        label: '投資基建',
+        effects: [
+          { k: 'transport', v: 3, at: 3, over: 4 },
+          { k: 'finance', v: -4, at: 0, over: 2 },
+        ],
+      },
+      { id: 'save', label: '繼續儲蓄', effects: [] },
+    ],
+  },
+  {
+    id: 'cleanAirBonus',
+    p: 0.6,
+    condition: (c) => c.gap.environment >= 10,
+    title: '空氣明顯比歷史清新',
+    text: '能見度改善，市民多了到郊外和海濱活動。',
+    effects: [{ k: 'livelihood', v: 1.5, at: 0, over: 2 }],
+  },
+  {
+    id: 'newIndustry',
+    p: 0.4,
+    minYear: 2005,
+    condition: (c) => c.gap.economy >= 8 && c.gap.transport >= 0,
+    title: '新產業起飛',
+    text: '經濟比真實歷史強，新產業在香港落地，帶來更多高薪職位。',
+    effects: [
+      { k: 'economy', v: 2, at: 0, over: 3 },
+      { k: 'finance', v: 1, at: 1, over: 3 },
+    ],
+  },
+  {
+    id: 'subdivided',
+    p: 0.4,
+    cooldown: 5,
+    condition: (c) => c.gap.housing <= -8,
+    title: '劏房問題惡化',
+    text: '樓價和輪候時間都比真實歷史更差，住在劏房的人數上升。',
+    effects: [{ k: 'livelihood', v: -2, at: 0, over: 2 }],
+  },
+  {
+    id: 'elderlyCare',
+    p: 0.5,
+    condition: (c) => c.gap.livelihood >= 8,
+    title: '安老服務輪候大減',
+    text: '院舍和社區照顧服務增加，長者輪候時間明顯縮短。',
+    effects: [{ k: 'livelihood', v: 1, at: 0, over: 2 }],
+  },
+  {
+    id: 'congestion',
+    p: 0.35,
+    cooldown: 5,
+    minYear: 2000,
+    condition: (c) => c.gap.transport <= -8,
+    title: '交通擠塞惡化',
+    text: '鐵路網絡比真實歷史少，主要幹道經常擠塞。',
+    effects: [
+      { k: 'economy', v: -1.5, at: 0, over: 2 },
+      { k: 'environment', v: -1, at: 0, over: 2 },
+    ],
+  },
+  {
+    id: 'pollution',
+    p: 0.35,
+    cooldown: 5,
+    condition: (c) => c.gap.environment <= -8,
+    title: '空氣污染惡化',
+    text: '空氣比真實歷史更差，呼吸系統疾病求診人數上升。',
+    effects: [{ k: 'livelihood', v: -2, at: 0, over: 2 }],
+  },
+]
