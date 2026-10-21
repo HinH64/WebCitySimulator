@@ -11,8 +11,24 @@ export interface PastTerm {
 
 export type Speed = 'slow' | 'normal' | 'fast'
 
-const TERMS_KEY = 'parallel-hk.terms.v1'
+export interface Settings {
+  /** Pause after every N years; 0 never pauses. */
+  periodic: 0 | 1 | 3 | 5
+  pauseOnChoice: boolean
+  pauseOnCrisis: boolean
+  pauseWhileEditing: boolean
+}
+
+export const DEFAULT_SETTINGS: Settings = {
+  periodic: 0,
+  pauseOnChoice: false,
+  pauseOnCrisis: true,
+  pauseWhileEditing: false,
+}
+
+const TERMS_KEY = 'parallel-hk.terms.v2'
 const SPEED_KEY = 'parallel-hk.speed.v1'
+const SETTINGS_KEY = 'parallel-hk.settings.v1'
 const MAX_TERMS = 20
 
 // Storage can be unavailable (private mode, blocked site data); the game must work without it.
@@ -53,4 +69,13 @@ export function loadSpeed(): Speed {
 
 export function saveSpeed(speed: Speed) {
   write(SPEED_KEY, speed)
+}
+
+export function loadSettings(): Settings {
+  const s = read<Partial<Settings>>(SETTINGS_KEY, {})
+  return { ...DEFAULT_SETTINGS, ...(s && typeof s === 'object' ? s : {}) }
+}
+
+export function saveSettings(settings: Settings) {
+  write(SETTINGS_KEY, settings)
 }

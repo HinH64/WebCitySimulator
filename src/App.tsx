@@ -5,7 +5,7 @@ import type { GameState } from './engine/types'
 import { EndScreen } from './ui/EndScreen'
 import { GameScreen } from './ui/GameScreen'
 import { StartScreen } from './ui/StartScreen'
-import { loadSpeed, saveTerm, type Speed } from './ui/storage'
+import { loadSettings, loadSpeed, saveSettings, saveTerm, type Settings, type Speed } from './ui/storage'
 
 type Screen =
   | { kind: 'start' }
@@ -14,6 +14,7 @@ type Screen =
 
 export function App() {
   const [screen, setScreen] = useState<Screen>({ kind: 'start' })
+  const [settings, setSettings] = useState<Settings>(() => loadSettings())
 
   const start = useCallback((seed: number, speed: Speed) => {
     setScreen({ kind: 'game', run: Date.now(), game: newGame(seed), speed })
@@ -34,6 +35,11 @@ export function App() {
     window.scrollTo(0, 0)
   }, [])
 
+  const updateSettings = useCallback((s: Settings) => {
+    setSettings(s)
+    saveSettings(s)
+  }, [])
+
   if (screen.kind === 'game') {
     const { game } = screen
     return (
@@ -41,6 +47,8 @@ export function App() {
         key={screen.run}
         game={game}
         initialSpeed={screen.speed}
+        settings={settings}
+        onSettings={updateSettings}
         onEnd={() => end(game)}
         onQuit={() => setScreen({ kind: 'start' })}
       />

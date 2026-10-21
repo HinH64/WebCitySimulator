@@ -9,9 +9,9 @@ interface Props {
 }
 
 const SPEEDS: { id: Speed; label: string; hint: string }[] = [
-  { id: 'slow', label: '慢', hint: '約 8 分鐘' },
-  { id: 'normal', label: '中', hint: '約 5 分鐘' },
-  { id: 'fast', label: '快', hint: '約 2 分鐘' },
+  { id: 'slow', label: '慢', hint: '約 9 分鐘' },
+  { id: 'normal', label: '中', hint: '約 6 分鐘' },
+  { id: 'fast', label: '快', hint: '約 2 分半' },
 ]
 
 export function StartScreen({ initialSpeed, onStart }: Props) {
@@ -31,20 +31,20 @@ export function StartScreen({ initialSpeed, onStart }: Props) {
         <div className="eyebrow">1997 → 2026</div>
         <h1>平行香港</h1>
         <p className="lead">
-          1997 年 7 月 1 日，你接手香港。分配施政重心，在真實的歷史關口作出選擇，看看你的 2026 跟真實的香港有何不同。
+          1997 年 7 月 1 日，你接手香港的庫房。分配各部門的撥款，看著城市一年一年發展，2026 年再跟真實的香港比較。
         </p>
         <ul className="how small">
           <li>
-            <strong>分配</strong>：把 20 點分到住屋、經濟、交通、環境、民生、財政，每 5 年可重新分配。
+            <strong>撥款</strong>：調整六個部門的撥款水平。100% 維持現有服務，多於 100% 就擴建，但工程要幾年才見效。
           </li>
           <li>
-            <strong>觀看</strong>：時間自動流動，金融風暴、SARS、金融海嘯、疫情都會照真實歷史發生。
+            <strong>觀看</strong>：時間一直流動。留意庫房、人口和發展指標；金融風暴、SARS、金融海嘯、疫情會照真實歷史發生。
           </li>
           <li>
-            <strong>抉擇</strong>：八萬五、停建居屋、十大基建、辣招……選完揭曉歷史上的選擇。
+            <strong>其他工具</strong>：稅率、債務、長期政策，以及收件匣裡的歷史抉擇，都可以隨時處理，不會打斷時間。
           </li>
           <li>
-            <strong>對照</strong>：2026 年回到現在，比較你的香港和真實香港。
+            <strong>揭曉</strong>：2026 年回到現在，比較你的香港和真實香港，並揭曉每個關口歷史上怎樣選。
           </li>
         </ul>
       </section>
@@ -53,12 +53,7 @@ export function StartScreen({ initialSpeed, onStart }: Props) {
         <label className="field">
           <span>種子碼</span>
           <span className="field-row">
-            <input
-              value={seedText}
-              onChange={(e) => setSeedText(e.target.value)}
-              inputMode="numeric"
-              aria-describedby="seed-hint"
-            />
+            <input value={seedText} onChange={(e) => setSeedText(e.target.value)} inputMode="numeric" aria-describedby="seed-hint" />
             <button className="button" onClick={() => setSeedText(String(randomSeed()))}>
               隨機
             </button>
@@ -114,9 +109,7 @@ export function StartScreen({ initialSpeed, onStart }: Props) {
         </section>
       )}
 
-      <footer className="start-foot muted small">
-        靈感來自《80億分之1》。數據為約數，模型為簡化的遊戲模型。
-      </footer>
+      <footer className="start-foot muted small">靈感來自《80億分之1》。數據為約數，模型為簡化的遊戲模型。</footer>
 
       {showSources && <SourcesDialog onClose={() => setShowSources(false)} />}
     </div>

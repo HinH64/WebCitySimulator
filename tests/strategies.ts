@@ -1,31 +1,78 @@
-import { HISTORY_CHOICES } from '../src/data/events'
+import { DEPARTMENTS, TAXES, TAX_INFO, type DeptId } from '../src/data/budget'
+import { POLICIES } from '../src/data/policies'
+import { demandRows } from '../src/engine/demand'
+import { realFunding } from '../src/engine/real'
 import { nextRandom } from '../src/engine/rng'
-import { FOLLOW_HISTORY, type Strategy } from '../src/engine/sim'
-import { INDICATORS, type Allocation } from '../src/engine/types'
+import { FOLLOW_HISTORY, baselines, metricsNow, setFunding, setPolicy, setTax, type Strategy } from '../src/engine/sim'
+import { monthOf } from '../src/engine/time'
 
-export function ALL_IN(k: (typeof INDICATORS)[number]): Strategy {
+export { FOLLOW_HISTORY }
+
+/** Never touches anything and lets every decision expire. */
+export const UNTOUCHED: Strategy = { choose: () => undefined }
+
+/** Real choices, with every department held at one funding level. */
+export function allFunding(level: number): Strategy {
   return {
-    allocate: () => {
-      const a = Object.fromEntries(INDICATORS.map((i) => [i, 0])) as Allocation
-      a[k] = 20
-      return a
+    onMonth: (s) => {
+      for (const d of DEPARTMENTS) setFunding(s, d, level)
     },
     choose: FOLLOW_HISTORY.choose,
   }
 }
 
-/** Real allocation with `n` points moved from one indicator to another. */
-export function SHIFT(to: (typeof INDICATORS)[number], from: (typeof INDICATORS)[number], n: number): Strategy {
+/** Real funding except one department. */
+export function boost(dept: DeptId, level: number): Strategy {
   return {
-    allocate: (s) => {
-      const real = FOLLOW_HISTORY.allocate(s)
-      const moved = Math.min(n, real[from])
-      return { ...real, [from]: real[from] - moved, [to]: real[to] + moved }
+    onMonth: (s) => {
+      FOLLOW_HISTORY.onMonth!(s)
+      setFunding(s, dept, level)
     },
     choose: FOLLOW_HISTORY.choose,
   }
 }
 
+/** Real funding with low taxes. */
+export const TAX_CUT: Strategy = {
+  onMonth: (s) => {
+    FOLLOW_HISTORY.onMonth!(s)
+    setTax(s, 'salaries', 10)
+    setTax(s, 'profits', 10)
+  },
+  choose: FOLLOW_HISTORY.choose,
+}
+
+const ROW_DEPT: Record<string, DeptId> = {
+  housing: 'housing',
+  jobs: 'economy',
+  transport: 'transport',
+  care: 'health',
+  education: 'education',
+  environment: 'environment',
+}
+
+/**
+ * Reads the demand panel every January and moves 4% of department spending from the calmer
+ * departments to the two most pressing needs, keeping the budget balanced like a careful player.
+ */
+export const THOUGHTFUL: Strategy = {
+  onMonth: (s) => {
+    if (s.t > 0 && monthOf(s.t) !== 1) return
+    const m = metricsNow(s)
+    const rows = demandRows(s, m).sort((a, b) => b.severity - a.severity)
+    const base = baselines(s.t, m)
+    for (const d of DEPARTMENTS) setFunding(s, d, realFunding(d, s.t))
+    const priority = rows.slice(0, 2).map((r) => ROW_DEPT[r.id])
+    const others = DEPARTMENTS.filter((d) => !priority.includes(d))
+    const shift = 0.04 * DEPARTMENTS.reduce((a, d) => a + base[d] * s.funding[d], 0)
+    for (const d of priority) setFunding(s, d, s.funding[d] + shift / 2 / base[d])
+    const othersBase = others.reduce((a, d) => a + base[d], 0)
+    for (const d of others) setFunding(s, d, Math.max(0.95, s.funding[d] - shift / othersBase))
+  },
+  choose: FOLLOW_HISTORY.choose,
+}
+
+/** Random funding, taxes and policies every year; random answers. */
 export function randomStrategy(seed: number): Strategy {
   let state = seed * 7919 + 1
   const r = () => {
@@ -34,37 +81,12 @@ export function randomStrategy(seed: number): Strategy {
     return v
   }
   return {
-    allocate: () => {
-      const a = Object.fromEntries(INDICATORS.map((i) => [i, 0])) as Allocation
-      for (let i = 0; i < 20; i++) a[INDICATORS[Math.floor(r() * INDICATORS.length)]]++
-      return a
+    onMonth: (s) => {
+      if (s.t > 0 && monthOf(s.t) !== 1) return
+      for (const d of DEPARTMENTS) setFunding(s, d, 0.6 + r() * 1.0)
+      for (const k of TAXES) setTax(s, k, TAX_INFO[k].min + r() * (TAX_INFO[k].max - TAX_INFO[k].min) * 0.5)
+      for (const p of POLICIES) if (r() < 0.3) setPolicy(s, p.id, p.levels[Math.floor(r() * p.levels.length)].id)
     },
-    choose: (_s, p) => p.options[Math.floor(r() * p.options.length)].id,
+    choose: (_s, item) => item.options[Math.floor(r() * item.options.length)].id,
   }
-}
-
-/** Weights points by how much each indicator needs help, the model's own diminishing-returns logic. */
-export const NEED_WEIGHTED: Strategy = {
-  allocate: (s) => {
-    const w = INDICATORS.map((k) => (1.5 - s.values[k] / 100) ** 2)
-    const total = w.reduce((a, b) => a + b, 0)
-    const a = Object.fromEntries(INDICATORS.map((k, i) => [k, Math.floor((w[i] / total) * 20)])) as Allocation
-    let left = 20 - INDICATORS.reduce((sum, k) => sum + a[k], 0)
-    const order = [...INDICATORS].sort((x, y) => s.values[x] - s.values[y])
-    for (let i = 0; left > 0; i++, left--) a[order[i % order.length]]++
-    return a
-  },
-  choose: (_s, p) => {
-    const opts = p.kind === 'history' ? HISTORY_CHOICES.find((c) => c.id === p.id)!.options : p.options
-    let best = opts[0]
-    let bestValue = -Infinity
-    for (const o of opts) {
-      const v = o.effects.reduce((sum, e) => sum + e.v, 0)
-      if (v > bestValue) {
-        bestValue = v
-        best = o
-      }
-    }
-    return best.id
-  },
 }

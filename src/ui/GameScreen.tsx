@@ -1,38 +1,72 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { POPULATION } from '../data/history'
-import { choose, finishYear, historyChoice, setAllocation, tick, yearEndMonth } from '../engine/sim'
-import { START_YEAR, type Allocation, type ChoiceRecord, type GameState, type NewsItem } from '../engine/types'
-import { AllocationDialog } from './AllocationDialog'
-import { ChoiceDialog, RevealDialog } from './ChoiceDialog'
-import { IndicatorPanel } from './IndicatorPanel'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { demandRows, topConcerns, type DemandRow } from '../engine/demand'
+import { computeIndicators } from '../engine/indicators'
+import { answer, debtTotal, metricsNow, step } from '../engine/sim'
+import { START_YEAR, monthOf, yearOf } from '../engine/time'
+import type { GameState, Signal } from '../engine/types'
+import { Inbox } from './Inbox'
+import { Indicators } from './Indicators'
 import { NewsFeed } from './NewsFeed'
+import { BudgetPanel } from './panels/BudgetPanel'
+import { DebtPanel } from './panels/DebtPanel'
+import { DemandPanel } from './panels/DemandPanel'
+import { PolicyPanel } from './panels/PolicyPanel'
+import { PopulationPanel } from './panels/PopulationPanel'
+import { TaxPanel } from './panels/TaxPanel'
+import { SettingsDialog } from './SettingsDialog'
 import { SourcesDialog } from './SourcesDialog'
-import { saveSpeed, type Speed } from './storage'
+import { formatNumber, money, signed } from './format'
+import { saveSpeed, type Settings, type Speed } from './storage'
 
-const MONTH_MS: Record<Speed, number> = { slow: 1400, normal: 800, fast: 330 }
+const MONTH_MS: Record<Speed, number> = { slow: 1600, normal: 1000, fast: 400 }
 const SPEED_LABEL: Record<Speed, string> = { slow: '慢', normal: '中', fast: '快' }
 const NEXT_SPEED: Record<Speed, Speed> = { slow: 'normal', normal: 'fast', fast: 'slow' }
-const FRAME_MS = 80
+const FRAME_MS = 100
+
+type PanelId = 'budget' | 'tax' | 'debt' | 'policy' | 'demand' | 'population'
+const PANELS: { id: PanelId; label: string }[] = [
+  { id: 'budget', label: '預算' },
+  { id: 'demand', label: '需求' },
+  { id: 'population', label: '人口' },
+  { id: 'tax', label: '稅率' },
+  { id: 'policy', label: '政策' },
+  { id: 'debt', label: '債務' },
+]
+
+/** Why the clock should stop after a month, given the player's settings. */
+function pauseReason(signals: Signal[], settings: Settings, game: GameState): string | null {
+  const year = yearOf(game.t - 1)
+  if (signals.includes('crisis') && settings.pauseOnCrisis) return '財政告急，已自動暫停。看看預算、稅率和債務。'
+  if (signals.includes('choice') && settings.pauseOnChoice) return '收件匣有新抉擇，已自動暫停。'
+  if (signals.includes('yearEnd') && settings.periodic > 0 && (year - START_YEAR) % settings.periodic === settings.periodic - 1) {
+    return `${year} 年完結，已按設定暫停。`
+  }
+  return null
+}
 
 interface Props {
   game: GameState
   initialSpeed: Speed
+  settings: Settings
+  onSettings: (s: Settings) => void
   onEnd: () => void
   onQuit: () => void
 }
 
-export function GameScreen({ game, initialSpeed, onEnd, onQuit }: Props) {
-  const [, setVersion] = useState(0)
+export function GameScreen({ game, initialSpeed, settings, onSettings, onEnd, onQuit }: Props) {
+  const [version, setVersion] = useState(0)
   const bump = useCallback(() => setVersion((v) => v + 1), [])
   const [paused, setPaused] = useState(false)
+  const [pauseNote, setPauseNote] = useState<string | null>(null)
   const [speed, setSpeed] = useState<Speed>(initialSpeed)
-  const [auto, setAuto] = useState(false)
-  const [reveal, setReveal] = useState<{ record: ChoiceRecord; news?: NewsItem } | null>(null)
+  const [panel, setPanel] = useState<PanelId>('budget')
+  const [focusRow, setFocusRow] = useState<DemandRow['id']>()
   const [editing, setEditing] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
   const [showSources, setShowSources] = useState(false)
-  const progress = useRef(game.month)
+  const progress = useRef(0)
 
-  const blocked = Boolean(reveal) || editing || showSources
+  const blocked = showSettings || showSources || (settings.pauseWhileEditing && editing)
   const running = game.status === 'running' && !paused && !blocked
 
   useEffect(() => {
@@ -42,48 +76,46 @@ export function GameScreen({ game, initialSpeed, onEnd, onQuit }: Props) {
       const now = performance.now()
       progress.current += (now - last) / MONTH_MS[speed]
       last = now
-      const endMonth = yearEndMonth(game)
-      tick(game, Math.min(Math.floor(progress.current), endMonth))
-      if (game.status === 'running' && progress.current >= endMonth + 1) {
-        finishYear(game)
-        progress.current = game.month
+      if (progress.current >= 1) {
+        progress.current = Math.min(progress.current - 1, 0.99)
+        step(game)
+        const reason = pauseReason(game.signals, settings, game)
+        if (reason) {
+          setPaused(true)
+          setPauseNote(reason)
+        }
       }
       bump()
     }, FRAME_MS)
     return () => window.clearInterval(id)
-  }, [running, speed, game, bump])
-
-  // Auto mode follows real history at decision points and keeps the current focus.
-  useEffect(() => {
-    if (!auto || reveal) return
-    if (game.status === 'choice') {
-      choose(game, historyChoice(game.pending!))
-      bump()
-    } else if (game.status === 'allocate') {
-      setAllocation(game, game.alloc)
-      progress.current = game.month
-      bump()
-    }
-  }, [auto, reveal, game, game.status, bump])
+  }, [running, speed, settings, game, bump])
 
   useEffect(() => {
     if (game.status !== 'ended') return
-    const id = window.setTimeout(onEnd, 1800)
+    const id = window.setTimeout(onEnd, 1500)
     return () => window.clearTimeout(id)
   }, [game.status, onEnd])
 
-  const onChoose = (optionId: string) => {
-    const record = choose(game, optionId)
-    setReveal({ record, news: game.news[game.news.length - 1] })
+  // Recomputed every render tick; cheap compared to the month step.
+  const view = useMemo(() => {
+    const m = metricsNow(game)
+    const rows = demandRows(game, m)
+    const lastYear = [...game.snapshots].reverse().find((snap) => snap.t <= game.t - 12)
+    return { m, rows, indicators: computeIndicators(m, game), lastYear: lastYear?.indicators, concerns: topConcerns(rows) }
+  }, [game, version])
+
+  const onAnswer = (uid: number, optionId: string) => {
+    answer(game, uid, optionId)
+    if (paused && pauseNote?.startsWith('收件匣') && game.inbox.length === 0) {
+      setPaused(false)
+      setPauseNote(null)
+    }
     bump()
   }
 
-  const onAllocate = (alloc: Allocation) => {
-    const atPeriodStart = game.status === 'allocate'
-    setAllocation(game, alloc)
-    if (atPeriodStart) progress.current = game.month
-    setEditing(false)
-    bump()
+  const togglePause = () => {
+    setPaused(!paused)
+    setPauseNote(null)
   }
 
   const changeSpeed = () => {
@@ -92,79 +124,135 @@ export function GameScreen({ game, initialSpeed, onEnd, onQuit }: Props) {
     saveSpeed(next)
   }
 
-  const monthShown = Math.min(Math.max(1, Math.floor(progress.current)), 12)
-  const yearFraction = Math.min(1, Math.max(0, (progress.current - 1) / 12))
-  const population = POPULATION[game.year - START_YEAR]
+  const t = game.status === 'ended' ? game.t - 1 : game.t
+  const month = monthOf(t)
+  const debt = debtTotal(game)
+  const balance = game.last.revenueTotal - game.last.spendingTotal
   const latest = game.news[game.news.length - 1]
-  const pendingChange =
-    game.allocByYear[game.year] && JSON.stringify(game.allocByYear[game.year]) !== JSON.stringify(game.alloc)
+  const { m } = view
 
   return (
     <div className="game">
-      <header className="game-head">
+      <header className="topbar">
         <div className="clock">
-          <div className="year">{game.year}</div>
+          <div className="year">{yearOf(t)}</div>
           <div className="clock-meta">
-            <span>{monthShown} 月</span>
-            <span className="muted">人口 {Math.round(population * 100)} 萬（真實）</span>
+            <span>{month} 月</span>
+            <div className="year-progress" aria-hidden="true">
+              <div style={{ width: `${((month - 1 + progress.current) / 12) * 100}%` }} />
+            </div>
           </div>
-          <div className="year-progress" aria-hidden="true">
-            <div style={{ width: `${yearFraction * 100}%` }} />
+        </div>
+        <div className="vitals">
+          <div className="vital">
+            <span className="eyebrow">庫房</span>
+            <strong>{money(game.reserves)}</strong>
+            <span className={`small ${balance >= 0 ? 'good' : 'bad'}`}>
+              {balance >= 0 ? '▲' : '▼'} {money(Math.abs(balance))}／月
+            </span>
+          </div>
+          {debt > 0 && (
+            <div className="vital">
+              <span className="eyebrow">債務</span>
+              <strong className="warn">{money(debt)}</strong>
+            </div>
+          )}
+          <div className="vital">
+            <span className="eyebrow">人口</span>
+            <strong>{formatNumber(m.population, 1)} 萬</strong>
+            <span className={`small ${game.last.popChange >= 0 ? 'good' : 'bad'}`}>{signed(game.last.popChange * 12, 1)} 萬／年</span>
           </div>
         </div>
         <div className="controls">
-          <button
-            className="button"
-            onClick={() => setPaused(!paused)}
-            disabled={game.status !== 'running'}
-            aria-label={paused ? '繼續' : '暫停'}
-          >
+          <button className="button" onClick={togglePause} disabled={game.status !== 'running'}>
             {paused ? '▶ 繼續' : '❚❚ 暫停'}
           </button>
-          <button className="button" onClick={changeSpeed} aria-label="切換速度">
+          <button className="button" onClick={changeSpeed}>
             速度：{SPEED_LABEL[speed]}
           </button>
-          <label className="toggle" title="自動跟隨真實歷史的選擇，並沿用目前的施政重心">
-            <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} />
-            自動
-          </label>
+          <button className="button icon" onClick={() => setShowSettings(true)} aria-label="設定">
+            ⚙
+          </button>
         </div>
         {latest && (
           <div className="ticker" aria-hidden="true">
-            <span className="muted">{latest.month} 月</span> {latest.text}
+            <span className="muted">{monthOf(latest.t)} 月</span> {latest.text}
           </div>
         )}
       </header>
 
-      <main className="game-body">
-        <div className="left-col">
-          <IndicatorPanel game={game} />
-          <div className="left-actions">
-            <button className="button primary" onClick={() => setEditing(true)} disabled={game.status === 'ended'}>
-              調整施政重心
-            </button>
-            {pendingChange && <span className="muted small">新分配由 {game.year + 1} 年生效</span>}
-          </div>
-          <div className="left-links">
-            <button className="link" onClick={() => setShowSources(true)}>
-              數據來源與模型
-            </button>
-            <button className="link" onClick={onQuit}>
-              離開這局
-            </button>
-          </div>
+      {paused && pauseNote && (
+        <div className="pause-note" role="status">
+          <span>{pauseNote}</span>
+          <button className="button primary small-button" onClick={togglePause}>
+            繼續
+          </button>
         </div>
-        <NewsFeed news={game.news} />
+      )}
+
+      <main className="layout">
+        <div className="col-left">
+          <Indicators
+            values={view.indicators}
+            lastYear={view.lastYear}
+            concerns={view.concerns}
+            onSelect={(row) => {
+              setPanel('demand')
+              setFocusRow(row)
+            }}
+          />
+        </div>
+
+        <section
+          className="card col-center"
+          onPointerEnter={() => setEditing(true)}
+          onPointerLeave={() => setEditing(false)}
+          onFocus={() => setEditing(true)}
+          onBlur={() => setEditing(false)}
+          aria-label="面板"
+        >
+          <nav className="tabs" role="tablist">
+            {PANELS.map((p) => (
+              <button
+                key={p.id}
+                role="tab"
+                aria-selected={panel === p.id}
+                className={panel === p.id ? 'active' : ''}
+                onClick={() => {
+                  setPanel(p.id)
+                  setFocusRow(undefined)
+                }}
+              >
+                {p.label}
+              </button>
+            ))}
+          </nav>
+          {panel === 'budget' && <BudgetPanel game={game} metrics={m} onChange={bump} />}
+          {panel === 'demand' && <DemandPanel rows={view.rows} focus={focusRow} />}
+          {panel === 'population' && <PopulationPanel game={game} metrics={m} />}
+          {panel === 'tax' && <TaxPanel game={game} onChange={bump} />}
+          {panel === 'policy' && <PolicyPanel game={game} onChange={bump} />}
+          {panel === 'debt' && <DebtPanel game={game} metrics={m} onChange={bump} />}
+        </section>
+
+        <div className="col-right">
+          <Inbox items={game.inbox} now={game.t} onAnswer={onAnswer} />
+          <NewsFeed news={game.news} />
+        </div>
       </main>
 
-      {game.status === 'allocate' && !auto && <AllocationDialog game={game} mandatory onConfirm={onAllocate} />}
-      {editing && game.status !== 'allocate' && (
-        <AllocationDialog game={game} mandatory={false} onConfirm={onAllocate} onCancel={() => setEditing(false)} />
+      {showSettings && (
+        <SettingsDialog
+          settings={settings}
+          onChange={onSettings}
+          onClose={() => setShowSettings(false)}
+          onSources={() => {
+            setShowSettings(false)
+            setShowSources(true)
+          }}
+          onQuit={onQuit}
+        />
       )}
-      {game.status === 'choice' && game.pending && !auto && !reveal && (
-        <ChoiceDialog choice={game.pending} onChoose={onChoose} />
-      )}
-      {reveal && <RevealDialog record={reveal.record} news={reveal.news} onContinue={() => setReveal(null)} />}
       {showSources && <SourcesDialog onClose={() => setShowSources(false)} />}
     </div>
   )
