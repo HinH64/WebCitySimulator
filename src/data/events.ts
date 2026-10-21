@@ -39,13 +39,22 @@ export const HISTORY_EVENTS: HistoryEvent[] = [
     year: 2011,
     month: 5,
     text: '法定最低工資實施，首個水平為每小時 28 元。',
-    requiresPolicy: { id: 'minWage', levels: ['on'] },
+    requires: { minWage: ['legislate'] },
   },
+  {
+    id: 'fareStart',
+    year: 2012,
+    month: 6,
+    text: '長者及合資格殘疾人士 2 元乘車優惠計劃開始。',
+    requires: { fare2: ['elderly'] },
+  },
+  { id: 'fareAllStart', year: 2012, month: 6, text: '全民交通津貼開始，市民的交通開支有部分由政府資助。', requires: { fare2: ['all'] } },
   { id: 'povertyLine', year: 2013, month: 9, text: '政府公布首條官方貧窮綫。' },
   { id: 'wil', year: 2014, month: 12, text: '西港島綫通車。' },
   { id: 'ktle', year: 2016, month: 10, text: '觀塘綫延綫通車。' },
   { id: 'sil', year: 2016, month: 12, text: '南港島綫通車。' },
   { id: 'hato', year: 2017, month: 8, text: '超強颱風天鴿襲港，天文台發出十號颶風信號。' },
+  { id: 'kgStart', year: 2017, month: 9, text: '免費優質幼稚園教育政策開始，合資格幼稚園的半日制課程免費。', requires: { freeKG: ['free'] } },
   { id: 'mangkhut', year: 2018, month: 9, text: '超強颱風山竹襲港，十號風球持續約 10 小時，全港大量塌樹。' },
   {
     id: 'xrl',
@@ -63,6 +72,7 @@ export const HISTORY_EVENTS: HistoryEvent[] = [
     requires: { tenProjects: ['all'] },
     altText: '港珠澳大橋沒有興建。',
   },
+  { id: 'dhcOpen', year: 2019, month: 9, text: '首間地區康健中心在葵青區啟用。', requires: { dhc: ['build'] } },
   { id: 'econ2019', year: 2019, month: 12, text: '受中美貿易摩擦等因素影響，全年經濟收縮約 1.7%。' },
   { id: 'covid', year: 2020, month: 1, text: '新冠病毒疫情爆發，旅遊、零售和餐飲業受到嚴重衝擊。' },
   {
@@ -95,14 +105,15 @@ export const HISTORY_EVENTS: HistoryEvent[] = [
     year: 2025,
     month: 3,
     text: '首批簡約公屋入伙。',
-    requiresPolicy: { id: 'lph', levels: ['on'] },
+    requires: { lph: ['build'] },
   },
   { id: 'now', year: 2026, month: 10, text: '2026 年 10 月：回到現在，你的任期完結。結局會揭曉真實的香港走了哪條路。' },
 ]
 
 const money = (v: number, at: number, over: number) => ({ kind: 'stock' as const, key: 'money' as const, v, at, over })
 const gdp = (v: number, at: number, over: number) => ({ kind: 'stock' as const, key: 'gdp' as const, v, at, over })
-const policy = (id: string, level: string) => ({ kind: 'policy' as const, id, level })
+/** `at`: months after the decision comes up, for a law or scheme that starts later. */
+const policy = (id: string, level: string, at?: number) => ({ kind: 'policy' as const, id, level, ...(at ? { at } : {}) })
 
 export const HISTORY_CHOICES: HistoryChoice[] = [
   {
@@ -275,7 +286,7 @@ export const HISTORY_CHOICES: HistoryChoice[] = [
     text: '基層工資多年沒有增長，有工人時薪不足 20 元。要立法訂立法定最低工資嗎？',
     onlyIf: { policy: 'minWage', levels: ['off'] },
     options: [
-      { id: 'legislate', label: '立法，2011 年 5 月實施', effects: [policy('minWage', 'on')] },
+      { id: 'legislate', label: '立法，2011 年 5 月實施', effects: [policy('minWage', 'on', 10)] },
       { id: 'no', label: '不立法，由市場決定工資', effects: [] },
     ],
     realOptionId: 'legislate',
@@ -317,14 +328,30 @@ export const HISTORY_CHOICES: HistoryChoice[] = [
     reveal: '2011 年施政報告宣布復建居屋，復建後首批居屋單位在 2014 年推出發售。',
   },
   {
+    id: 'fare2',
+    year: 2011,
+    month: 10,
+    title: '長者出行',
+    text: '長者人數急增，不少長者因車費少出門。要資助市民乘搭公共交通嗎？',
+    onlyIf: { policy: 'fare', levels: ['off'] },
+    options: [
+      { id: 'elderly', label: '長者及殘疾人士每程 2 元（2012 年 6 月起）', effects: [policy('fare', 'elderly', 8)] },
+      { id: 'all', label: '向所有市民提供交通費津貼（2012 年 6 月起）', effects: [policy('fare', 'all', 8)] },
+      { id: 'none', label: '維持現狀', effects: [] },
+    ],
+    realOptionId: 'elderly',
+    defaultOptionId: 'none',
+    reveal: '2011 年施政報告宣布「長者及合資格殘疾人士公共交通票價優惠計劃」，2012 年 6 月起分階段實施，每程 2 元。',
+  },
+  {
     id: 'oala',
     year: 2012,
     month: 10,
     title: '長者支援',
     text: '人口急速老化，不少長者生活困難。要怎樣加強支援？',
     options: [
-      { id: 'oala', label: '推出經濟審查的長者生活津貼', effects: [policy('oala', 'on'), policy('upr', 'off')] },
-      { id: 'universal', label: '推行全民退休保障', effects: [policy('upr', 'on'), policy('oala', 'off')] },
+      { id: 'oala', label: '推出經濟審查的長者生活津貼（2013 年 4 月起）', effects: [policy('oala', 'on', 6)] },
+      { id: 'universal', label: '推行全民退休保障（2013 年 4 月起）', effects: [policy('upr', 'on', 6)] },
       { id: 'none', label: '維持現有安排', effects: [] },
     ],
     realOptionId: 'oala',
@@ -362,6 +389,21 @@ export const HISTORY_CHOICES: HistoryChoice[] = [
     reveal: '2014 年 12 月公布《長遠房屋策略》，以十年供應 47 萬個單位、公私營比例 60:40 為目標；其後公營比例調升至 70:30。',
   },
   {
+    id: 'freeKG',
+    year: 2016,
+    month: 1,
+    title: '幼稚園學費',
+    text: '幼稚園學費不斷上升，年輕家庭負擔沉重。要推行免費幼稚園教育嗎？',
+    onlyIf: { policy: 'freeKG', levels: ['off'] },
+    options: [
+      { id: 'free', label: '由 2017/18 學年起推行免費幼稚園教育', effects: [policy('freeKG', 'on', 20)] },
+      { id: 'none', label: '維持現有學費資助', effects: [] },
+    ],
+    realOptionId: 'free',
+    defaultOptionId: 'none',
+    reveal: '2016 年施政報告宣布由 2017/18 學年起推行免費優質幼稚園教育政策，資助合資格幼稚園的半日制課程。',
+  },
+  {
     id: 'itb',
     year: 2015,
     month: 11,
@@ -377,6 +419,21 @@ export const HISTORY_CHOICES: HistoryChoice[] = [
     realOptionId: 'tech',
     defaultOptionId: 'none',
     reveal: '創新及科技局在 2015 年 11 月成立，政府其後撥款推動創科，例如發展落馬洲河套區港深創新及科技園。',
+  },
+  {
+    id: 'dhc',
+    year: 2017,
+    month: 10,
+    title: '基層醫療',
+    text: '公立醫院長期爆滿，不少病人其實可以在社區得到照顧。要設立地區康健中心嗎？',
+    onlyIf: { policy: 'primaryCare', levels: ['off'] },
+    options: [
+      { id: 'build', label: '設立地區康健中心（首間 2019 年 9 月啟用）', effects: [policy('primaryCare', 'on', 23)] },
+      { id: 'none', label: '維持現有醫療安排', effects: [] },
+    ],
+    realOptionId: 'build',
+    defaultOptionId: 'none',
+    reveal: '2017 年施政報告提出設立地區康健中心，首間在 2019 年 9 月於葵青區啟用，其後推展至全港 18 區。',
   },
   {
     id: 'lantau',
@@ -487,7 +544,7 @@ export const HISTORY_CHOICES: HistoryChoice[] = [
     title: '人口流失',
     text: '過去兩年人口減少，勞動力短缺。要大力吸引外地人才嗎？',
     options: [
-      { id: 'boost', label: '推出新的高端人才計劃，大力搶人才', effects: [policy('talent', 'boost')] },
+      { id: 'boost', label: '推出新的高端人才計劃，大力搶人才', effects: [policy('talent', 'boost', 2)] },
       { id: 'standard', label: '維持現有安排', effects: [] },
       { id: 'off', label: '收緊輸入人才', effects: [policy('talent', 'off')] },
     ],

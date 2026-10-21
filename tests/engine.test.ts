@@ -7,7 +7,7 @@ import { FIRST_YEAR, LAST_YEAR, REAL, realRevenue, yearValue } from '../src/data
 import { computeResult } from '../src/engine/endings'
 import { computeIndicators } from '../src/engine/indicators'
 import { computeMetrics, realMetrics } from '../src/engine/metrics'
-import { answer, debtTotal, newGame, playThrough, playerPolicyLevel, step, type Strategy } from '../src/engine/sim'
+import { answer, debtTotal, newGame, playThrough, playerPolicyLevel, setPolicy, step, type Strategy } from '../src/engine/sim'
 import { realPolicyLevel } from '../src/engine/real'
 import { monthIndex } from '../src/engine/time'
 import { INDICATOR_IDS } from '../src/engine/types'
@@ -68,18 +68,23 @@ describe('data', () => {
     }
   })
 
-  it('offers a decision for every real policy change', () => {
+  it('offers a decision for every real policy change, taking effect when it really did', () => {
     for (const p of POLICIES) {
       for (const change of p.real.slice(1)) {
         const t = monthIndex(...change.from)
-        const choice = HISTORY_CHOICES.find(
-          (c) =>
-            Math.abs(monthIndex(c.year, c.month) - t) <= 10 &&
-            c.options.find((o) => o.id === c.realOptionId)!.effects.some((e) => e.kind === 'policy' && e.id === p.id && e.level === change.level),
+        // An answer given straight away counts from the next month; a scheduled one from its `at`.
+        const choice = HISTORY_CHOICES.find((c) =>
+          c.options
+            .find((o) => o.id === c.realOptionId)!
+            .effects.some((e) => e.kind === 'policy' && e.id === p.id && e.level === change.level && monthIndex(c.year, c.month) + (e.at ?? 1) === t),
         )
         expect(choice, `${p.id} -> ${change.level} ${change.from.join('-')}`).toBeDefined()
       }
     }
+  })
+
+  it('makes general policies available from the start, except new technology', () => {
+    expect(POLICIES.filter((p) => monthIndex(...p.availableFrom) > 0).map((p) => p.id)).toEqual(['lph'])
   })
 
   it('only gates history events on earlier choices and known policies', () => {
@@ -199,6 +204,28 @@ describe('simulation', () => {
     const t = monthIndex(2016, 1)
     expect(realPolicyLevel('talent', t)).toBe('standard')
     expect(playerPolicyLevel(g, POLICY_BY_ID.talent, t)).toBe('off')
+  })
+
+  it('starts a scheduled policy when the decision says', () => {
+    const g = newGame(2)
+    while (g.t <= monthIndex(2010, 7)) step(g)
+    const item = g.inbox.find((i) => i.id === 'minWage')!
+    answer(g, item.uid, 'legislate')
+    expect(g.policies.minWage).toBe('off')
+    while (g.t < monthIndex(2011, 5)) step(g)
+    expect(g.policies.minWage).toBe('off')
+    step(g)
+    expect(g.policies.minWage).toBe('on')
+    expect(g.news.some((n) => n.text.includes('法定最低工資實施'))).toBe(true)
+  })
+
+  it('lets the player override a scheduled policy', () => {
+    const g = newGame(2)
+    while (g.t <= monthIndex(2010, 7)) step(g)
+    answer(g, g.inbox.find((i) => i.id === 'minWage')!.uid, 'legislate')
+    setPolicy(g, 'minWage', 'off')
+    while (g.t <= monthIndex(2011, 6)) step(g)
+    expect(g.policies.minWage).toBe('off')
   })
 
   it('sets a decision\'s policy only when it is answered', () => {

@@ -51,7 +51,8 @@ export type StockKey =
 /** `at` and `over` are in months. */
 export type Effect =
   | { kind: 'stock'; key: StockKey; v: number; at?: number; over?: number }
-  | { kind: 'policy'; id: string; level: string }
+  /** Sets a policy; with `at`, that many months after the decision came up (e.g. a law that starts later). */
+  | { kind: 'policy'; id: string; level: string; at?: number }
   /** Multiplies every department's funding level. */
   | { kind: 'funding'; factor: number }
   /** Raises a tax rate by percentage points from now on. */
@@ -235,6 +236,8 @@ export interface GameState {
   felt: Record<TaxId, number>
   /** Policy levels; they change only when the player changes them or answers a decision. */
   policies: Record<string, string>
+  /** Policy changes already decided that start later. */
+  policyQueue: { t: number; id: string; level: string }[]
   /** Level effects of policies as they phase in. */
   policyLevels: { unemployment: number; welfare: number; attract: number; pm10: number; green: number }
   sectors: Record<SectorId, number>

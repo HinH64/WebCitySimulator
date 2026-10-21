@@ -192,6 +192,36 @@ export function EndScreen({ game, onReplaySeed, onNewGame }: Props) {
       </section>
 
       <section>
+        <h2 className="section-title">
+          政策對比（{r.policies.length} 項中有 {r.policies.filter((p) => p.same).length} 項跟真實一樣）
+        </h2>
+        <div className="table-wrap">
+          <table className="metrics policy-table">
+            <thead>
+              <tr>
+                <th>政策</th>
+                <th>你的香港</th>
+                <th>真實香港</th>
+              </tr>
+            </thead>
+            <tbody>
+              {r.policies.map((p) => (
+                <tr key={p.id} className={p.same ? '' : 'diff'}>
+                  <td>{p.label}</td>
+                  <td>{p.yours}</td>
+                  <td>
+                    {p.real}
+                    {p.realHistory.includes('→') && <div className="muted small">{p.realHistory}</div>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="muted small">{r.endYear} 年的政策。真實香港一欄下面是它歷年的改變。</p>
+      </section>
+
+      <section>
         <h2 className="section-title">你的撥款 vs 真實政府（平均撥款水平）</h2>
         <div className="table-wrap">
           <table className="metrics funding-table">

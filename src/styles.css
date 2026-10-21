@@ -632,6 +632,8 @@ input[type='range'] {
 .metrics th { font-size: 0.85rem; color: var(--ink-2); font-weight: 500; }
 .metrics td.mono { text-align: right; white-space: nowrap; }
 .metrics th:not(:first-child) { text-align: right; }
+.policy-table th:not(:first-child) { text-align: left; }
+.policy-table tr.diff td:nth-child(2) { color: var(--accent); font-weight: 600; }
 .funding-table td,
 .funding-table th { font-size: 0.85rem; }
 .reveal-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.6rem; }

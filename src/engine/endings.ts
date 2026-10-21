@@ -2,8 +2,9 @@ import { DEPARTMENTS, type DeptId } from '../data/budget'
 import { HISTORY_CHOICES } from '../data/events'
 import { computeIndicators, INDICATOR_LABEL } from './indicators'
 import { clamp, computeMetrics, realMetricsEnd } from './metrics'
-import { realFunding, realReserves, realSpendingMonth } from './real'
-import { debtTotal } from './sim'
+import { POLICIES, type PolicyCategory } from '../data/policies'
+import { realFunding, realPolicyLevel, realReserves, realSpendingMonth } from './real'
+import { debtTotal, playerPolicyLevel } from './sim'
 import { LAST_MONTH_INDEX, monthIndex, yearOf } from './time'
 import { INDICATOR_IDS, type ChoiceRecord, type GameState, type IndicatorId, type Metrics } from './types'
 
@@ -28,6 +29,16 @@ export interface RevealRow {
   real: string
   same: boolean
   reveal: string
+}
+
+export interface PolicyRow {
+  id: string
+  label: string
+  yours: string
+  real: string
+  /** How the real level changed over the years, e.g. "1997 不推行 → 2010 全面". */
+  realHistory: string
+  same: boolean
 }
 
 export interface FundingPeriod {
@@ -72,6 +83,7 @@ export interface GameResult extends CityScore {
   real: CityScore
   comparison: ComparisonRow[]
   reveals: RevealRow[]
+  policies: PolicyRow[]
   funding: FundingPeriod[]
   trend: TrendPoint[]
 }
@@ -197,6 +209,19 @@ function comparison(m: Metrics, real: Metrics, s: GameState, endT: number): Comp
   ]
 }
 
+const CATEGORY_ORDER: PolicyCategory[] = ['housing', 'transport', 'economy', 'social', 'environment', 'tax']
+
+function policyRows(s: GameState, endT: number): PolicyRow[] {
+  const sorted = [...POLICIES].sort((a, b) => CATEGORY_ORDER.indexOf(a.category) - CATEGORY_ORDER.indexOf(b.category))
+  return sorted.map((p) => {
+    const label = (id: string) => p.levels.find((l) => l.id === id)?.label ?? id
+    const yours = playerPolicyLevel(s, p, endT)
+    const real = realPolicyLevel(p.id, endT)
+    const history = p.real.filter((r) => monthIndex(...r.from) <= endT).map((r) => `${r.from[0]} ${label(r.level)}`)
+    return { id: p.id, label: p.label, yours: label(yours), real: label(real), realHistory: history.join(' → '), same: yours === real }
+  })
+}
+
 const PERIODS: [number, number][] = [
   [1997, 2001],
   [2002, 2006],
@@ -294,6 +319,7 @@ export function computeResult(s: GameState): GameResult {
     real,
     comparison: comparison(m, realM, s, endT),
     reveals,
+    policies: policyRows(s, endT),
     funding: fundingPeriods(s, endT),
     trend,
   }

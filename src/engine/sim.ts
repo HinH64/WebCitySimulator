@@ -145,6 +145,7 @@ export function newGame(seed: number, options: Partial<GameOptions> = {}): GameS
     taxes: {},
     felt: { ...realFelt(0) },
     policies: Object.fromEntries(POLICIES.map((p) => [p.id, p.real[0].level])),
+    policyQueue: [],
     policyLevels: { unemployment: 0, welfare: 0, attract: 0, pm10: 0, green: 0 },
     sectors: { ...realSectors(0) },
     reserves: realReserves(0),
@@ -233,11 +234,18 @@ export function setTax(s: GameState, id: TaxId, rate: number | undefined) {
   else s.taxes[id] = clamp(rate, TAX_INFO[id].min, TAX_INFO[id].max)
 }
 
+/** The player's own change; it replaces any change already scheduled for that policy. */
 export function setPolicy(s: GameState, id: string, level: string) {
   const p = POLICY_BY_ID[id]
   if (!p || isBefore(s.t, p.availableFrom)) return
   if (!p.levels.some((l) => l.id === level)) return
   s.policies[id] = level
+  s.policyQueue = s.policyQueue.filter((q) => q.id !== id)
+}
+
+/** A change decided now that starts in a later month, if any. */
+export function scheduledPolicy(s: GameState, id: string): { t: number; level: string } | undefined {
+  return s.policyQueue.find((q) => q.id === id)
 }
 
 function applyEffect(s: GameState, e: Effect, sign: 1 | -1, baseT: number) {
@@ -249,9 +257,13 @@ function applyEffect(s: GameState, e: Effect, sign: 1 | -1, baseT: number) {
       for (let i = 0; i < over; i++) schedule(s, Math.max(s.t, baseT + at + i), e.key, (sign * e.v * n) / over)
       break
     }
-    case 'policy':
-      s.policies[e.id] = e.level
+    case 'policy': {
+      const due = baseT + (e.at ?? 0)
+      s.policyQueue = s.policyQueue.filter((q) => q.id !== e.id)
+      if (due <= s.t) s.policies[e.id] = e.level
+      else s.policyQueue.push({ t: due, id: e.id, level: e.level })
       break
+    }
     case 'funding':
       for (const d of DEPARTMENTS) setFunding(s, d, s.funding[d] * e.factor)
       break
@@ -278,7 +290,7 @@ export function answer(s: GameState, uid: number, optionId: string, expired = fa
   if (item.kind === 'history') {
     const ch = HISTORY_CHOICES.find((c) => c.id === item.id)!
     const real = ch.options.find((o) => o.id === ch.realOptionId)!
-    for (const e of opt.effects) if (e.kind === 'policy') applyEffect(s, e, 1, s.t)
+    for (const e of opt.effects) if (e.kind === 'policy') applyEffect(s, e, 1, item.received)
     if (opt.id !== real.id) {
       for (const e of opt.effects) if (e.kind !== 'policy') applyEffect(s, e, 1, s.t)
       for (const e of real.effects) if (e.kind === 'stock') applyEffect(s, e, -1, item.received)
@@ -449,6 +461,9 @@ export function step(s: GameState) {
   s.signals = []
 
   if (month === 1 && t > 0) closeYear(s, computeMetrics(s, t))
+
+  for (const q of s.policyQueue.filter((x) => x.t <= t)) s.policies[q.id] = q.level
+  s.policyQueue = s.policyQueue.filter((x) => x.t > t)
 
   const due = applyPipeline(s)
   const real = realMetrics(t)
