@@ -1,9 +1,9 @@
-import { DEPARTMENTS, type DeptId } from '../data/budget'
+import { DEPARTMENTS, REAL_TAX, TAXES, TAX_INFO, type DeptId } from '../data/budget'
 import { HISTORY_CHOICES } from '../data/events'
 import { computeIndicators, INDICATOR_LABEL } from './indicators'
 import { clamp, computeMetrics, realMetricsEnd } from './metrics'
 import { POLICIES, type PolicyCategory } from '../data/policies'
-import { realFunding, realPolicyLevel, realReserves, realSpendingMonth } from './real'
+import { realFunding, realPolicyLevel, realReserves, realSpendingMonth, realTax } from './real'
 import { debtTotal, playerPolicyLevel } from './sim'
 import { LAST_MONTH_INDEX, monthIndex, yearOf } from './time'
 import { INDICATOR_IDS, type ChoiceRecord, type GameState, type IndicatorId, type Metrics } from './types'
@@ -213,12 +213,27 @@ const CATEGORY_ORDER: PolicyCategory[] = ['housing', 'transport', 'economy', 'so
 
 function policyRows(s: GameState, endT: number): PolicyRow[] {
   const sorted = [...POLICIES].sort((a, b) => CATEGORY_ORDER.indexOf(a.category) - CATEGORY_ORDER.indexOf(b.category))
-  return sorted.map((p) => {
+  const rows = sorted.map((p) => {
     const label = (id: string) => p.levels.find((l) => l.id === id)?.label ?? id
     const yours = playerPolicyLevel(s, p, endT)
     const real = realPolicyLevel(p.id, endT)
     const history = p.real.filter((r) => monthIndex(...r.from) <= endT).map((r) => `${r.from[0]} ${label(r.level)}`)
     return { id: p.id, label: p.label, yours: label(yours), real: label(real), realHistory: history.join(' → '), same: yours === real }
+  })
+  // Tax rates head the tax group.
+  const firstTax = sorted.findIndex((p) => p.category === 'tax')
+  rows.splice(firstTax < 0 ? rows.length : firstTax, 0, ...taxRows(s, endT))
+  return rows
+}
+
+const pct = (v: number) => `${Number(v.toFixed(1))}%`
+
+function taxRows(s: GameState, endT: number): PolicyRow[] {
+  return TAXES.map((k) => {
+    const yours = s.taxes[k]
+    const real = realTax(k, endT)
+    const history = REAL_TAX[k].filter((r) => monthIndex(...r.from) <= endT).map((r) => `${r.from[0]} ${pct(r.rate)}`)
+    return { id: `tax-${k}`, label: TAX_INFO[k].label, yours: pct(yours), real: pct(real), realHistory: history.join(' → '), same: Math.abs(yours - real) < 0.01 }
   })
 }
 

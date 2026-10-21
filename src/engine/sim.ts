@@ -1,10 +1,10 @@
-import { DEBT, DEPARTMENTS, FUNDING_MAX, FUNDING_MIN, TAX_INFO, type DeptId, type TaxId } from '../data/budget'
+import { DEBT, DEPARTMENTS, FUNDING_MAX, FUNDING_MIN, TAXES, TAX_INFO, type DeptId, type TaxId } from '../data/budget'
 import { CITY_EVENTS } from '../data/cityEvents'
 import { HISTORY_CHOICES, HISTORY_EVENTS, PARALLEL_EVENTS } from '../data/events'
 import { POLICIES, POLICY_BY_ID, type PolicyDef, type PolicyEffect } from '../data/policies'
 import { yearValue } from '../data/real'
 import { computeIndicators } from './indicators'
-import { attractiveness, clamp, computeMetrics, effectiveTaxes, fullQuality, realMetrics, zeroDeviations } from './metrics'
+import { attractiveness, clamp, computeMetrics, fullQuality, realMetrics, zeroDeviations } from './metrics'
 import {
   cpiAt,
   levelAt,
@@ -17,6 +17,7 @@ import {
   realSectors,
   realSpendingMonth,
   realTax,
+  realTaxes,
   revenueShare,
   sectorBoost,
   spendShare,
@@ -142,7 +143,7 @@ export function newGame(seed: number, options: Partial<GameOptions> = {}): GameS
     dev: zeroDeviations(),
     quality: fullQuality(),
     funding,
-    taxes: {},
+    taxes: realTaxes(0),
     felt: { ...realFelt(0) },
     policies: Object.fromEntries(POLICIES.map((p) => [p.id, p.real[0].level])),
     policyQueue: [],
@@ -229,9 +230,9 @@ export function setFunding(s: GameState, d: DeptId, level: number) {
   s.funding[d] = clamp(Math.round(level * 100) / 100, FUNDING_MIN, FUNDING_MAX)
 }
 
-export function setTax(s: GameState, id: TaxId, rate: number | undefined) {
-  if (rate === undefined) delete s.taxes[id]
-  else s.taxes[id] = clamp(rate, TAX_INFO[id].min, TAX_INFO[id].max)
+/** Tax rates start at 1997's and only the player changes them; history's changes are revealed at the end. */
+export function setTax(s: GameState, id: TaxId, rate: number) {
+  s.taxes[id] = clamp(rate, TAX_INFO[id].min, TAX_INFO[id].max)
 }
 
 /** The player's own change; it replaces any change already scheduled for that policy. */
@@ -268,7 +269,7 @@ function applyEffect(s: GameState, e: Effect, sign: 1 | -1, baseT: number) {
       for (const d of DEPARTMENTS) setFunding(s, d, s.funding[d] * e.factor)
       break
     case 'tax':
-      setTax(s, e.id, (s.taxes[e.id] ?? realTax(e.id, s.t)) + e.delta)
+      setTax(s, e.id, s.taxes[e.id] + e.delta)
       break
     case 'bond':
       issueBond(s, e.amount, e.years)
@@ -560,7 +561,7 @@ export function step(s: GameState) {
   s.dev.pop += migration
 
   // Money.
-  const taxesP = effectiveTaxes(s.taxes, t)
+  const taxesP = s.taxes
   const rs = revenueShare(t)
   const rm = realRevenueMonth(t)
   const gdpRatio = m.gdp / real.gdp
@@ -741,10 +742,11 @@ export function realOptionId(choiceId: string): string | undefined {
   return HISTORY_CHOICES.find((c) => c.id === choiceId)?.realOptionId
 }
 
-/** Does what the real government did: real funding levels, policies and choices. */
+/** Does what the real government did: real funding levels, tax rates, policies and choices. */
 export const FOLLOW_HISTORY: Strategy = {
   onMonth: (s) => {
     for (const d of DEPARTMENTS) s.funding[d] = realFunding(d, s.t)
+    for (const k of TAXES) s.taxes[k] = realTax(k, s.t)
     for (const p of POLICIES) s.policies[p.id] = realPolicyLevel(p.id, s.t)
   },
   choose: (_s, item) => (item.kind === 'history' ? realOptionId(item.id) : item.defaultOptionId),

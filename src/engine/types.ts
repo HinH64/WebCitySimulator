@@ -230,8 +230,8 @@ export interface GameState {
   dev: Deviations
   quality: Record<DeptId, number>
   funding: Record<DeptId, number>
-  /** Undefined means the tax follows its historical rate. */
-  taxes: Partial<Record<TaxId, number>>
+  /** Tax rates; they start at 1997's and change only when the player changes them. */
+  taxes: Record<TaxId, number>
   /** Tax rates as people react to them (moves gradually towards the actual rate). */
   felt: Record<TaxId, number>
   /** Policy levels; they change only when the player changes them or answers a decision. */

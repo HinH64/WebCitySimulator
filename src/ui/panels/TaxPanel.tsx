@@ -1,8 +1,6 @@
 import { REVENUE_LABEL, TAXES, TAX_INFO, type RevenueId } from '../../data/budget'
 import { POLICIES } from '../../data/policies'
-import { realTax } from '../../engine/real'
 import { setTax } from '../../engine/sim'
-import { LAST_MONTH_INDEX } from '../../engine/time'
 import type { GameState } from '../../engine/types'
 import { formatNumber, money, percent } from '../format'
 import { PolicyItem } from './PolicyPanel'
@@ -15,11 +13,12 @@ export function TaxPanel({ game, onChange }: { game: GameState; onChange: () => 
 
   return (
     <div className="panel">
-      <p className="muted small">稅率改變後，收入下個月起改變；市民和企業的反應要幾年才慢慢出現。</p>
+      <p className="muted small">
+        開局是 1997 年的稅率，之後只由你調整。稅率改變後，收入下個月起改變；市民和企業的反應要幾年才慢慢出現。
+      </p>
       {TAXES.map((k) => {
         const info = TAX_INFO[k]
-        const following = game.taxes[k] === undefined
-        const rate = game.taxes[k] ?? realTax(k, Math.min(game.t, LAST_MONTH_INDEX))
+        const rate = game.taxes[k]
         return (
           <div key={k} className="tax-row">
             <div className="dept-head">
@@ -40,17 +39,6 @@ export function TaxPanel({ game, onChange }: { game: GameState; onChange: () => 
             />
             <div className="dept-foot small">
               <span className="muted">{info.effect}</span>
-              <label className="check">
-                <input
-                  type="checkbox"
-                  checked={following}
-                  onChange={(e) => {
-                    setTax(game, k, e.target.checked ? undefined : rate)
-                    onChange()
-                  }}
-                />
-                按當時稅制自動調整
-              </label>
             </div>
           </div>
         )

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEPARTMENTS, REVENUE_SHARE_ANCHORS, SPEND_SHARE_ANCHORS } from '../src/data/budget'
+import { DEPARTMENTS, REVENUE_SHARE_ANCHORS, SPEND_SHARE_ANCHORS, TAXES } from '../src/data/budget'
 import { CITY_EVENTS } from '../src/data/cityEvents'
 import { HISTORY_CHOICES, HISTORY_EVENTS, PARALLEL_EVENTS } from '../src/data/events'
 import { POLICIES, POLICY_BY_ID } from '../src/data/policies'
@@ -8,7 +8,7 @@ import { computeResult } from '../src/engine/endings'
 import { computeIndicators } from '../src/engine/indicators'
 import { computeMetrics, realMetrics } from '../src/engine/metrics'
 import { answer, debtTotal, newGame, playThrough, playerPolicyLevel, setPolicy, step, type Strategy } from '../src/engine/sim'
-import { realPolicyLevel } from '../src/engine/real'
+import { realPolicyLevel, realTax } from '../src/engine/real'
 import { monthIndex } from '../src/engine/time'
 import { INDICATOR_IDS } from '../src/engine/types'
 import { FOLLOW_HISTORY, UNTOUCHED, allFunding, boost, randomStrategy } from './strategies'
@@ -204,6 +204,15 @@ describe('simulation', () => {
     const t = monthIndex(2016, 1)
     expect(realPolicyLevel('talent', t)).toBe('standard')
     expect(playerPolicyLevel(g, POLICY_BY_ID.talent, t)).toBe('off')
+  })
+
+  it('keeps 1997 tax rates unless the player changes them, and reveals the real ones at the end', () => {
+    const g = playThrough(3, UNTOUCHED)
+    for (const k of TAXES) expect(g.taxes[k], k).toBe(realTax(k, 0))
+    expect(realTax('profits', monthIndex(2005, 1))).toBe(17.5)
+    const profits = computeResult(g).policies.find((p) => p.id === 'tax-profits')!
+    expect(profits.yours).toBe('16.5%')
+    expect(profits.realHistory).toContain('2003 17.5%')
   })
 
   it('starts a scheduled policy when the decision says', () => {

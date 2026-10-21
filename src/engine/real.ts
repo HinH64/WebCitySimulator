@@ -75,6 +75,10 @@ export function realTax(tax: TaxId, t: number): number {
   return timelineAt(entries, t, (i) => entries[i].rate)
 }
 
+export function realTaxes(t: number): Record<TaxId, number> {
+  return Object.fromEntries(TAXES.map((k) => [k, realTax(k, t)])) as Record<TaxId, number>
+}
+
 export function realPolicyLevel(id: string, t: number): string {
   const p = POLICY_BY_ID[id]
   return timelineAt(p.real, t, (i) => p.real[i].level)
@@ -142,7 +146,7 @@ function buildPaths(): RealPaths {
   const felt: Record<TaxId, number>[] = []
   const sectors: Record<SectorId, number>[] = []
   let r = yearValue('reserves', START_YEAR)
-  let f = Object.fromEntries(TAXES.map((k) => [k, realTax(k, 0)])) as Record<TaxId, number>
+  let f = realTaxes(0)
   let s = Object.fromEntries(SECTORS.map((k) => [k, SECTOR_SHARE_1997[k] / 100])) as Record<SectorId, number>
   const total = SECTORS.reduce((a, k) => a + s[k], 0)
   for (const k of SECTORS) s[k] /= total
@@ -151,8 +155,7 @@ function buildPaths(): RealPaths {
     felt.push(f)
     sectors.push(s)
     r += realRevenueMonth(t) - realSpendingMonth(t)
-    const actual = Object.fromEntries(TAXES.map((k) => [k, realTax(k, t)])) as Record<TaxId, number>
-    f = updateFelt(f, actual)
+    f = updateFelt(f, realTaxes(t))
     s = stepSectors(s, normalisedSectorDeviation(t, s), sectorBoost(realPolicyLevel('industryFocus', t)))
   }
   return { reserves, felt, sectors }

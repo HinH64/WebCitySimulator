@@ -193,13 +193,13 @@ export function EndScreen({ game, onReplaySeed, onNewGame }: Props) {
 
       <section>
         <h2 className="section-title">
-          政策對比（{r.policies.length} 項中有 {r.policies.filter((p) => p.same).length} 項跟真實一樣）
+          政策與稅率對比（{r.policies.length} 項中有 {r.policies.filter((p) => p.same).length} 項跟真實一樣）
         </h2>
         <div className="table-wrap">
           <table className="metrics policy-table">
             <thead>
               <tr>
-                <th>政策</th>
+                <th>政策／稅率</th>
                 <th>你的香港</th>
                 <th>真實香港</th>
               </tr>
@@ -218,7 +218,7 @@ export function EndScreen({ game, onReplaySeed, onNewGame }: Props) {
             </tbody>
           </table>
         </div>
-        <p className="muted small">{r.endYear} 年的政策。真實香港一欄下面是它歷年的改變。</p>
+        <p className="muted small">{r.endYear} 年的政策和稅率。真實香港一欄下面是它歷年的改變。</p>
       </section>
 
       <section>

@@ -1,6 +1,6 @@
-import { TAXES, type DeptId, type TaxId } from '../data/budget'
+import type { DeptId } from '../data/budget'
 import type { SectorId } from '../data/sectors'
-import { cpiAt, levelAt, realFelt, realGdp, realSectors, realTax } from './real'
+import { cpiAt, levelAt, realFelt, realGdp, realSectors, realTaxes } from './real'
 import type { Deviations, GameState, Metrics } from './types'
 
 /** Share of migrants by age group. */
@@ -17,10 +17,6 @@ export function clamp(v: number, lo: number, hi: number): number {
 }
 
 export type MetricInput = Pick<GameState, 'dev' | 'quality' | 'taxes' | 'policyLevels' | 'sectors'>
-
-export function effectiveTaxes(taxes: Partial<Record<TaxId, number>>, t: number): Record<TaxId, number> {
-  return Object.fromEntries(TAXES.map((k) => [k, taxes[k] ?? realTax(k, t)])) as Record<TaxId, number>
-}
 
 export function computeMetrics(s: MetricInput, t: number): Metrics {
   const { dev, quality: q } = s
@@ -90,7 +86,7 @@ export function computeMetrics(s: MetricInput, t: number): Metrics {
     postSecondary: levelAt('postSecondary', t) + dev.postSecondary,
     professionalShare: s.sectors.professional * 100,
     sectors: s.sectors,
-    taxes: effectiveTaxes(s.taxes, t),
+    taxes: { ...s.taxes },
   }
 }
 
@@ -123,7 +119,7 @@ function realAt(t: number, sectorMonth: number): Metrics {
     {
       dev: zeroDeviations(),
       quality: fullQuality(),
-      taxes: {},
+      taxes: realTaxes(t),
       policyLevels: { unemployment: 0, welfare: 0, attract: 0, pm10: 0, green: 0 },
       sectors: realSectors(sectorMonth) as Record<SectorId, number>,
     },
