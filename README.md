@@ -49,4 +49,11 @@ tests/        Vitest 測試
 
 ## 部署
 
-推送到 `main` 後，GitHub Actions 會測試、建置並部署到 GitHub Pages。第一次使用前，要在 repo 的 **Settings → Pages** 把 Source 設為 **GitHub Actions**。
+網站部署在 Vercel，透過 Vercel 的 Git 整合自動部署：
+
+- 推送到 `main`：更新正式網址。
+- 推送到其他分支或開 PR：產生獨立的預覽網址。
+
+在 Vercel 匯入這個 repo 時會自動偵測到 Vite（Build Command `npm run build`，Output Directory `dist`），不用另外設定。
+
+GitHub Actions（`.github/workflows/ci.yml`）只負責在每次推送和 PR 時跑測試和建置，不負責部署。

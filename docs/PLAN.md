@@ -101,7 +101,7 @@
 - 模擬引擎是純 TypeScript，不依賴介面
 - 事件、數據、參數寫成資料檔
 - Vitest：歷史回測（跟隨真實 = 真實歷史）、決定性、數值範圍、平衡測試
-- 部署：GitHub Pages（GitHub Actions）
+- 部署：Vercel（Git 整合，每個分支有預覽網址）；GitHub Actions 只跑測試和建置
 
 ---
 
