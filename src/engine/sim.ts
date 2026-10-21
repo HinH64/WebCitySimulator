@@ -1,81 +1,150 @@
+import { DEBT, DEPARTMENTS, FUNDING_MAX, FUNDING_MIN, TAX_INFO, type DeptId, type TaxId } from '../data/budget'
 import { HISTORY_CHOICES, HISTORY_EVENTS, PARALLEL_EVENTS } from '../data/events'
+import { POLICIES, POLICY_BY_ID, type PolicyDef, type PolicyEffect } from '../data/policies'
+import { yearValue } from '../data/real'
+import { computeIndicators } from './indicators'
+import { attractiveness, clamp, computeMetrics, effectiveTaxes, fullQuality, realMetrics, zeroDeviations } from './metrics'
 import {
-  LAG,
-  allocationEffects,
-  clampScore,
-  gapDrift,
-  gapScores,
-  realAllocation,
-  realScores,
-  withCrossEffects,
-  zeroScores,
-} from './model'
+  cpiAt,
+  levelAt,
+  normalisedSectorDeviation,
+  realFelt,
+  realFunding,
+  realPolicyLevel,
+  realReserves,
+  realRevenueMonth,
+  realSectors,
+  realSpendingMonth,
+  realTax,
+  revenueShare,
+  sectorBoost,
+  spendShare,
+  stepSectors,
+  updateFelt,
+} from './real'
 import { nextRandom } from './rng'
-import {
-  END_YEAR,
-  INDICATORS,
-  PERIOD_STARTS,
-  START_YEAR,
-  TOTAL_POINTS,
-  type Allocation,
-  type ChoiceRecord,
-  type Effect,
-  type GameState,
-  type IndicatorKey,
-  type NewsItem,
-  type PendingChoice,
-  type ScheduledEffect,
-  type YearItem,
+import { LAST_MONTH_INDEX, START_YEAR, isBefore, monthOf, yearOf } from './time'
+import type {
+  ChoiceOption,
+  ChoiceRecord,
+  Effect,
+  GameState,
+  InboxItem,
+  Metrics,
+  MonthFlows,
+  ParallelContext,
+  StockKey,
+  YearAccumulator,
 } from './types'
 
-/** Effects are multiplied by 1 ± NOISE so the same plan plays out a little differently per seed. */
-const NOISE = 0.2
-const MAX_PARALLEL_PER_YEAR = 2
-/** The game starts on 1 July 1997 and ends at the "back to now" event in October 2026. */
-const FIRST_MONTH = 7
-const LAST_MONTH = 10
+/** Months a decision waits in the inbox before the default is taken. */
+export const INBOX_DEADLINE = 12
+/** Effects vary by ±15% so the same plan plays out a little differently per seed. */
+const NOISE = 0.15
+/** New land-based housing per year (萬 units) split between public housing and land sales. */
+const LAND_UNITS_PER_YEAR = 3
+/** Land premium per 萬 private units, per point of the price index (億). */
+const PREMIUM_PER_INDEX = 1.2
+/** Gross people moving in or out each year (萬) for reasons the player can influence. */
+const MIGRATION_GROSS = 6
+const PRICE_ELASTICITY = 2
+/** Return on reserves above or below the historical level, per year. */
+const MARGINAL_RETURN = 0.04
+const PRICE_ADJUST_PER_MONTH = 0.025
+const LIFE_ADJUST_PER_MONTH = 0.15 / 12
+const POLICY_LEVEL_SPEED = 1 / 24
+const AUTO_BOND_BUFFER = 300
+const MAX_PARALLEL_PER_MONTH = 2
 
-export function defaultAllocation(): Allocation {
-  return { housing: 4, economy: 3, transport: 3, environment: 3, livelihood: 4, finance: 3 }
+/**
+ * How extra spending (per 億 at 1997 prices) turns into things, and when.
+ * Weights are spread over successive years starting `startYear` years later.
+ */
+const CONVERSIONS: Record<DeptId, { key: StockKey; per: number; startYear: number; weights: number[] }[]> = {
+  housing: [
+    { key: 'publicUnits', per: 0.0063, startYear: 3, weights: [0.1, 0.25, 0.3, 0.25, 0.1] },
+    { key: 'landSale', per: 0.0012, startYear: 3, weights: [1] },
+    { key: 'privateUnits', per: 0.0012, startYear: 4, weights: [0.2, 0.3, 0.3, 0.2] },
+    { key: 'green', per: -0.00004, startYear: 1, weights: [1] },
+  ],
+  transport: [{ key: 'rail', per: 1 / 30, startYear: 5, weights: [0.1, 0.2, 0.3, 0.25, 0.15] }],
+  // Economy is special-cased: each 億 adds 0.5 億 to the GDP level.
+  economy: [{ key: 'gdp', per: 0.5, startYear: 0, weights: [0.3, 0.4, 0.3] }],
+  education: [{ key: 'postSecondary', per: 0.0024, startYear: 3, weights: [0.2, 0.2, 0.2, 0.2, 0.2] }],
+  health: [{ key: 'care', per: 0.0007, startYear: 1, weights: [0.5, 0.5] }],
+  environment: [{ key: 'pm10', per: -0.015, startYear: 0, weights: [0.3, 0.3, 0.2, 0.2] }],
 }
 
-export function isValidAllocation(a: Allocation): boolean {
-  let sum = 0
-  for (const k of INDICATORS) {
-    if (!Number.isInteger(a[k]) || a[k] < 0) return false
-    sum += a[k]
+/**
+ * Upkeep quality settles where funding allows: no loss down to 95%, then progressively worse.
+ * It falls about a quarter of the way to that level each year and recovers a fifth.
+ */
+export function qualityTarget(f: number): number {
+  return clamp(1 - 1.5 * Math.max(0, 0.95 - f), 0.3, 1)
+}
+
+function nextQuality(q: number, f: number): number {
+  const target = qualityTarget(f)
+  const speed = target < q ? 0.25 : 0.2
+  return clamp(q + ((target - q) * speed) / 12, 0.3, 1)
+}
+
+/** Spending above 100% builds things, with diminishing returns beyond 150%. */
+export function expansionShare(f: number): number {
+  if (f <= 1) return 0
+  if (f <= 1.5) return f - 1
+  return 0.5 + (f - 1.5) * 0.5
+}
+
+function emptyFlows(): MonthFlows {
+  return { revenue: {}, spending: {}, revenueTotal: 0, spendingTotal: 0, births: 0, deaths: 0, oneWay: 0, otherNet: 0, popChange: 0 }
+}
+
+function newAccumulator(year: number, m: Metrics): YearAccumulator {
+  return {
+    year,
+    revenue: 0,
+    spending: 0,
+    popStart: m.population,
+    publicStart: m.publicUnits,
+    railStart: m.railKm,
+    funding: { housing: 0, transport: 0, economy: 0, education: 0, health: 0, environment: 0 },
+    months: 0,
   }
-  return sum === TOTAL_POINTS
 }
 
 export function newGame(seed: number): GameState {
-  const real = realScores(START_YEAR)
-  return {
+  const funding = Object.fromEntries(DEPARTMENTS.map((d) => [d, realFunding(d, 0)])) as Record<DeptId, number>
+  const s: GameState = {
     seed,
     rng: seed,
-    year: START_YEAR,
-    month: FIRST_MONTH,
-    values: { ...real },
-    trail: { [START_YEAR]: { ...real } },
-    alloc: defaultAllocation(),
-    allocByYear: {},
-    scheduled: [],
-    flags: {},
+    t: 0,
+    status: 'running',
+    dev: zeroDeviations(),
+    quality: fullQuality(),
+    funding,
+    taxes: {},
+    felt: { ...realFelt(0) },
+    policies: {},
+    policyLevels: { unemployment: 0, welfare: 0, attract: 0, pm10: 0, green: 0 },
+    sectors: { ...realSectors(0) },
+    reserves: realReserves(0),
+    bonds: [],
+    nextBondId: 1,
+    pipeline: {},
+    inbox: [],
+    nextInboxId: 1,
     choices: [],
-    news: [],
-    queue: [],
+    flags: {},
     cooldowns: {},
-    status: 'allocate',
+    news: [],
+    signals: [],
+    last: emptyFlows(),
+    year: newAccumulator(START_YEAR, realMetrics(0)),
+    snapshots: [],
+    fundingByYear: {},
   }
-}
-
-/** Month at which the current year is over. */
-export function yearEndMonth(s: GameState): number {
-  return s.year === END_YEAR ? LAST_MONTH : 12
-}
-
-export function isPeriodStart(year: number): boolean {
-  return (PERIOD_STARTS as readonly number[]).includes(year)
+  return s
 }
 
 function rand(s: GameState): number {
@@ -88,270 +157,520 @@ function noise(s: GameState): number {
   return 1 + NOISE * (2 * rand(s) - 1)
 }
 
-function schedule(s: GameState, year: number, k: IndicatorKey, v: number, source: ScheduledEffect['source']) {
-  if (v !== 0) s.scheduled.push({ year, k, v, source })
+function schedule(s: GameState, month: number, key: StockKey, v: number) {
+  if (v === 0 || month > LAST_MONTH_INDEX + 240) return
+  const bucket = (s.pipeline[month] ??= {})
+  bucket[key] = (bucket[key] ?? 0) + v
 }
 
-function scheduleEffects(s: GameState, effects: Effect[], sign: 1 | -1, source: ScheduledEffect['source']) {
-  for (const e of effects) {
-    const at = e.at ?? 0
-    const over = e.over ?? 1
-    const n = noise(s)
-    for (let i = 0; i < over; i++) schedule(s, s.year + 1 + at + i, e.k, (sign * e.v * n) / over, source)
-  }
+export function metricsNow(s: GameState): Metrics {
+  return computeMetrics(s, Math.min(s.t, LAST_MONTH_INDEX))
 }
 
-/** Net effect per indicator, ignoring timing; used to label news items. */
-export function netEffects(effects: Effect[], minus: Effect[] = []): { k: IndicatorKey; v: number }[] {
-  const sum = zeroScores()
-  for (const e of effects) sum[e.k] += e.v
-  for (const e of minus) sum[e.k] -= e.v
-  return INDICATORS.filter((k) => Math.abs(sum[k]) >= 0.05).map((k) => ({ k, v: sum[k] }))
+export function debtTotal(s: GameState): number {
+  return s.bonds.reduce((a, b) => a + b.principal, 0)
 }
 
-/**
- * Sets the allocation. At a period start it starts the year; otherwise it applies from next year,
- * because this year's allocation effects are already committed.
- */
-export function setAllocation(s: GameState, alloc: Allocation) {
-  if (!isValidAllocation(alloc)) throw new Error('allocation must use exactly 20 whole points')
-  s.alloc = { ...alloc }
-  if (s.status === 'allocate') {
-    s.status = 'running'
-    beginYear(s)
-  }
+export function playerPolicyLevel(s: Pick<GameState, 'policies'>, p: PolicyDef, t: number): string {
+  if (isBefore(t, p.availableFrom)) return p.levels[0].id
+  return s.policies[p.id] ?? realPolicyLevel(p.id, t)
 }
 
-function beginYear(s: GameState) {
-  const y = s.year
-  const real = realScores(y)
-  const gap = gapScores(s.values, y)
-  const realAlloc = realAllocation(y)
-  s.allocByYear[y] = { ...s.alloc }
-  s.month = y === START_YEAR ? FIRST_MONTH : 1
-
-  const own = allocationEffects(s.alloc, realAlloc, s.values, gap)
-  for (const e of withCrossEffects(own)) {
-    const n = noise(s)
-    LAG[e.from].forEach((w, i) => {
-      if (w > 0) schedule(s, y + 1 + i, e.to, e.v * w * n, 'allocation')
-    })
-  }
-
-  const items: YearItem[] = []
-
-  if (s.landed) {
-    const landed = INDICATORS.filter((k) => Math.abs(s.landed![k]) >= 0.8).map((k) => ({ k, v: s.landed![k] }))
-    if (landed.length > 0) {
-      items.push({
-        type: 'news',
-        month: s.month,
-        news: { year: y, month: s.month, kind: 'project', text: '你的施政重心見效（相對真實歷史）', effects: landed },
-      })
-    }
-    s.landed = undefined
-  }
-
-  for (const ev of HISTORY_EVENTS) {
-    if (ev.year !== y) continue
-    const met =
-      !ev.requires || Object.entries(ev.requires).every(([choiceId, opts]) => opts.includes(s.flags[choiceId]))
-    const text = met ? ev.text : ev.altText
-    if (text) items.push({ type: 'news', month: ev.month, news: { year: y, month: ev.month, kind: 'history', text } })
-  }
-
-  for (const ch of HISTORY_CHOICES) {
-    if (ch.year !== y) continue
-    items.push({
-      type: 'choice',
-      month: ch.month,
-      choice: { kind: 'history', id: ch.id, year: y, month: ch.month, title: ch.title, text: ch.text, options: ch.options },
-    })
-  }
-
-  const ctx = { year: y, values: s.values, real, gap, alloc: s.alloc, realAlloc }
-  let fired = 0
-  for (const pe of PARALLEL_EVENTS) {
-    if (fired >= MAX_PARALLEL_PER_YEAR) break
-    if (pe.minYear !== undefined && y < pe.minYear) continue
-    const last = s.cooldowns[pe.id]
-    if (last !== undefined && (pe.cooldown === undefined || y - last < pe.cooldown)) continue
-    if (!pe.condition(ctx)) continue
-    if (rand(s) >= pe.p) continue
-    s.cooldowns[pe.id] = y
-    fired++
-    const month = Math.min(yearEndMonth(s), s.month + Math.floor(rand(s) * (yearEndMonth(s) - s.month + 1)))
-    if (pe.options) {
-      items.push({
-        type: 'choice',
-        month,
-        choice: { kind: 'parallel', id: pe.id, year: y, month, title: pe.title, text: pe.text, options: pe.options },
-      })
-    } else {
-      const effects = pe.effects ?? []
-      scheduleEffects(s, effects, 1, 'parallel')
-      items.push({
-        type: 'news',
-        month,
-        news: { year: y, month, kind: 'parallel', text: `${pe.title}：${pe.text}`, effects: netEffects(effects) },
-      })
-    }
-  }
-
-  s.queue = items.sort((a, b) => a.month - b.month)
+function growthActive(e: PolicyEffect, year: number): number {
+  if (!e.growth) return 0
+  if (e.growthYears && (year < e.growthYears[0] || year > e.growthYears[1])) return 0
+  return e.growth
 }
 
-/** Releases queued items up to `month`. Stops at the first choice, which the UI must resolve. */
-export function tick(s: GameState, month: number): NewsItem[] {
-  const added: NewsItem[] = []
-  if (s.status !== 'running') return added
-  while (s.queue.length > 0 && s.queue[0].month <= month) {
-    const item = s.queue.shift()!
-    if (item.type === 'news') {
-      s.news.push(item.news)
-      added.push(item.news)
-    } else {
-      s.month = Math.max(s.month, item.month)
-      s.status = 'choice'
-      s.pending = item.choice
-      return added
-    }
-  }
-  s.month = Math.max(s.month, Math.min(month, yearEndMonth(s)))
-  return added
+export function bondRate(s: GameState, m: Metrics): number {
+  const ratio = debtTotal(s) / m.gdp
+  return levelAt('interestRate', s.t) + DEBT.baseSpread + DEBT.spreadPerDebtRatio * ratio
 }
 
-export function choose(s: GameState, optionId: string): ChoiceRecord {
-  const p = s.pending
-  if (s.status !== 'choice' || !p) throw new Error('no pending choice')
-  const opt = p.options.find((o) => o.id === optionId)
-  if (!opt) throw new Error(`unknown option ${optionId}`)
-  let record: ChoiceRecord
-  let effects: { k: IndicatorKey; v: number }[]
-
-  if (p.kind === 'history') {
-    const ch = HISTORY_CHOICES.find((c) => c.id === p.id)!
-    const real = ch.options.find((o) => o.id === ch.realOptionId)!
-    if (opt.id !== real.id) {
-      scheduleEffects(s, opt.effects, 1, 'choice')
-      scheduleEffects(s, real.effects, -1, 'choice')
-    }
-    effects = netEffects(opt.effects, real.effects)
-    record = {
-      id: ch.id,
-      kind: 'history',
-      year: p.year,
-      title: ch.title,
-      optionId: opt.id,
-      optionLabel: opt.label,
-      realOptionId: real.id,
-      realOptionLabel: real.label,
-      reveal: ch.reveal,
-    }
-  } else {
-    scheduleEffects(s, opt.effects, 1, 'parallel')
-    effects = netEffects(opt.effects)
-    record = { id: p.id, kind: 'parallel', year: p.year, title: p.title, optionId: opt.id, optionLabel: opt.label }
-  }
-
-  s.flags[p.id] = opt.id
-  s.choices.push(record)
-  const news: NewsItem = {
-    year: p.year,
-    month: p.month,
-    kind: p.kind === 'history' ? 'choice' : 'parallel',
-    text: `${p.title}：你選擇「${opt.label}」`,
-    effects,
-  }
-  s.news.push(news)
-  s.pending = undefined
-  s.status = 'running'
-  return record
+export function issueBond(s: GameState, amount: number, years: number, auto = false) {
+  if (amount <= 0) return
+  const m = metricsNow(s)
+  s.bonds.push({ id: s.nextBondId++, principal: amount, rate: bondRate(s, m), issued: s.t, matures: s.t + years * 12, auto })
+  s.reserves += amount
 }
 
-/** Moves to the next year. Returns false when the term ends early. */
-function advance(s: GameState): boolean {
-  const y = s.year
-  const ny = y + 1
-  const realNow = realScores(y)
-  const realNext = realScores(ny)
-  const drift = gapDrift(gapScores(s.values, y))
-  const inc = zeroScores()
-  const landed = zeroScores()
-  const remaining: ScheduledEffect[] = []
-  for (const e of s.scheduled) {
-    if (e.year === ny) {
-      inc[e.k] += e.v
-      if (e.source === 'allocation') landed[e.k] += e.v
-    } else if (e.year > ny) {
-      remaining.push(e)
-    }
-  }
-  s.scheduled = remaining
-
-  const next = zeroScores()
-  for (const k of INDICATORS) {
-    next[k] = clampScore(s.values[k] + (realNext[k] - realNow[k]) + inc[k] + drift[k])
-  }
-  s.values = next
-  s.trail[ny] = { ...next }
-  s.landed = landed
-  s.year = ny
-
-  if (next.finance <= 0) {
-    s.status = 'ended'
-    s.endedEarly = { year: ny, reason: '財政儲備耗盡' }
-    s.news.push({ year: ny, month: 1, kind: 'system', text: `${ny} 年：財政儲備耗盡，你的任期提早結束。` })
-    return false
-  }
+export function repayBond(s: GameState, id: number): boolean {
+  const bond = s.bonds.find((b) => b.id === id)
+  if (!bond || s.reserves < bond.principal) return false
+  s.reserves -= bond.principal
+  s.bonds = s.bonds.filter((b) => b.id !== id)
   return true
 }
 
-/** Closes the current year once its clock has run out, then opens the next one. */
-export function finishYear(s: GameState) {
-  if (s.status !== 'running') return
-  tick(s, yearEndMonth(s))
-  if (s.status !== 'running') return
-  if (s.year >= END_YEAR) {
-    s.status = 'ended'
-    return
-  }
-  if (!advance(s)) return
-  if (isPeriodStart(s.year)) {
-    s.status = 'allocate'
-    s.month = 1
-  } else {
-    beginYear(s)
+export function setFunding(s: GameState, d: DeptId, level: number) {
+  s.funding[d] = clamp(Math.round(level * 100) / 100, FUNDING_MIN, FUNDING_MAX)
+}
+
+export function setTax(s: GameState, id: TaxId, rate: number | undefined) {
+  if (rate === undefined) delete s.taxes[id]
+  else s.taxes[id] = clamp(rate, TAX_INFO[id].min, TAX_INFO[id].max)
+}
+
+export function setPolicy(s: GameState, id: string, level: string | undefined) {
+  const p = POLICY_BY_ID[id]
+  if (!p || isBefore(s.t, p.availableFrom)) return
+  if (level !== undefined && !p.levels.some((l) => l.id === level)) return
+  s.policies[id] = level
+}
+
+function applyEffect(s: GameState, e: Effect, sign: 1 | -1, baseT: number) {
+  switch (e.kind) {
+    case 'stock': {
+      const at = e.at ?? 0
+      const over = e.over ?? 1
+      const n = noise(s)
+      for (let i = 0; i < over; i++) schedule(s, Math.max(s.t, baseT + at + i), e.key, (sign * e.v * n) / over)
+      break
+    }
+    case 'policy':
+      s.policies[e.id] = e.level
+      break
+    case 'funding':
+      for (const d of DEPARTMENTS) setFunding(s, d, s.funding[d] * e.factor)
+      break
+    case 'tax':
+      setTax(s, e.id, (s.taxes[e.id] ?? realTax(e.id, s.t)) + e.delta)
+      break
+    case 'bond':
+      issueBond(s, e.amount, e.years)
+      break
   }
 }
 
+/** Answers an inbox item. History choices only change the city where they differ from what happened. */
+export function answer(s: GameState, uid: number, optionId: string, expired = false): ChoiceRecord | undefined {
+  const item = s.inbox.find((i) => i.uid === uid)
+  if (!item) return undefined
+  const opt = item.options.find((o) => o.id === optionId)
+  if (!opt) return undefined
+  s.inbox = s.inbox.filter((i) => i.uid !== uid)
+
+  if (item.kind === 'history') {
+    const ch = HISTORY_CHOICES.find((c) => c.id === item.id)!
+    const real = ch.options.find((o) => o.id === ch.realOptionId)!
+    if (opt.id === real.id) {
+      // Going with history: its policies keep following the historical timeline.
+      for (const e of real.effects) if (e.kind === 'policy') s.policies[e.id] = undefined
+    } else {
+      for (const e of opt.effects) applyEffect(s, e, 1, s.t)
+      for (const e of real.effects) if (e.kind === 'stock') applyEffect(s, e, -1, item.received)
+    }
+  } else {
+    for (const e of opt.effects) applyEffect(s, e, 1, s.t)
+  }
+
+  s.flags[item.id] = opt.id
+  const record: ChoiceRecord = {
+    id: item.id,
+    kind: item.kind,
+    t: s.t,
+    title: item.title,
+    optionId: opt.id,
+    optionLabel: opt.label,
+    expired,
+  }
+  s.choices.push(record)
+  s.news.push({
+    t: s.t,
+    kind: 'decision',
+    text: expired ? `${item.title}：限期已過，維持「${opt.label}」` : `${item.title}：你決定「${opt.label}」`,
+  })
+  return record
+}
+
+function pushInbox(s: GameState, item: Omit<InboxItem, 'uid' | 'received' | 'deadline'>) {
+  s.inbox.push({ ...item, uid: s.nextInboxId++, received: s.t, deadline: s.t + INBOX_DEADLINE })
+  s.news.push({ t: s.t, kind: 'decision', text: `收件匣：${item.title}` })
+  s.signals.push('choice')
+}
+
+function needRatio(d: DeptId | 'other', m: Metrics, real: Metrics): number {
+  switch (d) {
+    case 'housing':
+      return m.publicUnits / real.publicUnits
+    case 'transport':
+      return m.railKm / real.railKm
+    case 'economy':
+      return m.gdp / real.gdp
+    case 'education':
+      return (m.children + 0.2 * m.working) / (real.children + 0.2 * real.working)
+    case 'health':
+      return Math.pow(m.elderly / real.elderly, 0.6) * Math.pow(m.population / real.population, 0.4)
+    case 'environment':
+      return Math.sqrt((m.population / real.population) * (m.gdp / real.gdp))
+    case 'other':
+      return m.population / real.population
+  }
+}
+
+/** What maintaining each department's existing services costs this month, at real prices (億). */
+export function baselines(t: number, m: Metrics): Record<DeptId, number> {
+  const real = realMetrics(t)
+  const shares = spendShare(t)
+  const total = realSpendingMonth(t)
+  const out = {} as Record<DeptId, number>
+  for (const d of DEPARTMENTS) out[d] = ((total * shares[d]) / realFunding(d, t)) * needRatio(d, m, real)
+  return out
+}
+
+function scheduleDepartment(s: GameState, d: DeptId, amount: number, m: Metrics) {
+  const t = s.t
+  const at1997 = amount / cpiAt(t)
+  for (const c of CONVERSIONS[d]) {
+    const n = noise(s)
+    const total = d === 'economy' ? ((amount * c.per) / m.gdp) * 100 * n : at1997 * c.per * n
+    c.weights.forEach((w, i) => schedule(s, t + 12 * (c.startYear + i) + 6, c.key, total * w))
+  }
+}
+
+function applyPipeline(s: GameState): { landSale: number; money: number } {
+  const due = s.pipeline[s.t]
+  delete s.pipeline[s.t]
+  if (!due) return { landSale: 0, money: 0 }
+  const dev = s.dev
+  for (const [key, v] of Object.entries(due) as [StockKey, number][]) {
+    switch (key) {
+      case 'gdp':
+        dev.lnProductivity += Math.log(1 + v / 100)
+        break
+      case 'tourism': {
+        s.sectors = { ...s.sectors, tourism: Math.max(0.001, s.sectors.tourism + v / 100) }
+        const total = Object.values(s.sectors).reduce((a, b) => a + b, 0)
+        for (const k of Object.keys(s.sectors) as (keyof typeof s.sectors)[]) s.sectors[k] /= total
+        break
+      }
+      case 'landSale':
+      case 'money':
+        break
+      default:
+        dev[key] += v
+    }
+  }
+  return { landSale: due.landSale ?? 0, money: due.money ?? 0 }
+}
+
+function historyEventText(s: GameState, ev: (typeof HISTORY_EVENTS)[number], t: number): string | undefined {
+  const choicesMet =
+    !ev.requires || Object.entries(ev.requires).every(([choiceId, opts]) => opts.includes(s.flags[choiceId]))
+  const policyMet =
+    !ev.requiresPolicy || ev.requiresPolicy.levels.includes(playerPolicyLevel(s, POLICY_BY_ID[ev.requiresPolicy.id], t))
+  return choicesMet && policyMet ? ev.text : ev.altText
+}
+
+function fmt(v: number, d = 0): string {
+  return new Intl.NumberFormat('zh-HK', { minimumFractionDigits: d, maximumFractionDigits: d }).format(v)
+}
+
+function signed(v: number, d = 1): string {
+  const r = Number(v.toFixed(d))
+  return (r > 0 ? '+' : r < 0 ? '−' : '') + fmt(Math.abs(r), d)
+}
+
+function closeYear(s: GameState, m: Metrics) {
+  const acc = s.year
+  if (acc.months > 0) {
+    const balance = acc.revenue - acc.spending
+    s.fundingByYear[acc.year] = Object.fromEntries(
+      DEPARTMENTS.map((d) => [d, acc.funding[d] / acc.months]),
+    ) as Record<DeptId, number>
+    s.news.push({
+      t: s.t,
+      kind: 'report',
+      text:
+        `${acc.year} 年度報告：收入 ${fmt(acc.revenue)} 億、開支 ${fmt(acc.spending)} 億，` +
+        `${balance >= 0 ? '盈餘' : '赤字'} ${fmt(Math.abs(balance))} 億；人口 ${signed(m.population - acc.popStart)} 萬；` +
+        `公營房屋 ${signed(m.publicUnits - acc.publicStart, 1)} 萬個；鐵路 ${signed(m.railKm - acc.railStart, 0)} 公里。`,
+      tone: balance >= 0 ? 'good' : 'bad',
+    })
+  }
+  s.year = newAccumulator(yearOf(s.t), m)
+}
+
+function snapshot(s: GameState, t: number) {
+  const m = computeMetrics(s, t)
+  s.snapshots.push({
+    year: yearOf(t),
+    t,
+    indicators: computeIndicators(m, s),
+    reserves: s.reserves,
+    debt: debtTotal(s),
+    metrics: m,
+  })
+}
+
+/** Simulates one month. */
+export function step(s: GameState) {
+  if (s.status !== 'running') return
+  const t = s.t
+  const year = yearOf(t)
+  const month = monthOf(t)
+  s.signals = []
+
+  if (month === 1 && t > 0) closeYear(s, computeMetrics(s, t))
+
+  const due = applyPipeline(s)
+  const real = realMetrics(t)
+  let m = computeMetrics(s, t)
+  const popStart = m.population
+  const cpi = cpiAt(t)
+
+  // Departments: spending, expansion relative to history, upkeep quality.
+  const base = baselines(t, m)
+  const deptSpend = {} as Record<DeptId, number>
+  for (const d of DEPARTMENTS) {
+    const fP = s.funding[d]
+    const fR = realFunding(d, t)
+    const baseReal = base[d] / needRatio(d, m, real)
+    deptSpend[d] = base[d] * fP
+    const extra = base[d] * expansionShare(fP) - baseReal * expansionShare(fR)
+    if (extra !== 0) scheduleDepartment(s, d, extra, m)
+    s.quality[d] = nextQuality(s.quality[d], fP)
+    s.year.funding[d] += fP
+  }
+  s.year.months++
+
+  // Policies: compare the player's level with the real one.
+  const levelTarget = { unemployment: 0, welfare: 0, attract: 0, pm10: 0, green: 0 }
+  let policyCost = 0
+  let policyGdpFlow = 0
+  let stampRatio = 1
+  for (const p of POLICIES) {
+    const lp = playerPolicyLevel(s, p, t)
+    const lr = realPolicyLevel(p.id, t)
+    const ep = p.effects[lp] ?? {}
+    const er = p.effects[lr] ?? {}
+    for (const k of Object.keys(levelTarget) as (keyof typeof levelTarget)[]) levelTarget[k] += (ep[k] ?? 0) - (er[k] ?? 0)
+    if (lp === lr) continue
+    policyCost += (((ep.cost ?? 0) - (er.cost ?? 0)) * cpi) / 12
+    policyGdpFlow += ((ep.costGdpShare ?? 0) * m.gdp - (er.costGdpShare ?? 0) * real.gdp) / 12
+    const pub = (ep.publicUnits ?? 0) - (er.publicUnits ?? 0)
+    const pubFast = (ep.publicUnitsFast ?? 0) - (er.publicUnitsFast ?? 0)
+    const priv = (ep.privateUnits ?? 0) - (er.privateUnits ?? 0)
+    const landShare = ((ep.publicLandShare ?? 0) - (er.publicLandShare ?? 0)) * LAND_UNITS_PER_YEAR
+    schedule(s, t + 36, 'publicUnits', (pub + landShare) / 12)
+    schedule(s, t + 18, 'publicUnits', pubFast / 12)
+    schedule(s, t + 48, 'privateUnits', (priv - landShare) / 12)
+    schedule(s, t + 12, 'landSale', (priv - landShare) / 12)
+    s.dev.priceShift += ((ep.priceDrift ?? 0) - (er.priceDrift ?? 0)) / 12
+    s.dev.lnProductivity += (growthActive(ep, year) - growthActive(er, year)) / 100 / 12
+    s.dev.pop += ((ep.talent ?? 0) - (er.talent ?? 0)) / 12
+    stampRatio *= (ep.stampFactor ?? 1) / (er.stampFactor ?? 1)
+  }
+  for (const k of Object.keys(levelTarget) as (keyof typeof levelTarget)[]) {
+    s.policyLevels[k] += (levelTarget[k] - s.policyLevels[k]) * POLICY_LEVEL_SPEED
+  }
+
+  // Economy: sector mix and continuous growth effects.
+  const realShares = realSectors(t)
+  const sectorDev = normalisedSectorDeviation(t, realShares)
+  const boostP = sectorBoost(playerPolicyLevel(s, POLICY_BY_ID.industryFocus, t))
+  const boostR = sectorBoost(realPolicyLevel('industryFocus', t))
+  let aggregate = 0
+  for (const k of Object.keys(sectorDev) as (keyof typeof sectorDev)[]) {
+    aggregate += s.sectors[k] * (sectorDev[k] + (boostP[k] ?? 0)) - realShares[k] * (sectorDev[k] + (boostR[k] ?? 0))
+  }
+  s.sectors = stepSectors(s.sectors, sectorDev, boostP)
+  const feltReal = realFelt(t)
+  const growth =
+    aggregate +
+    0.04 * s.dev.postSecondary +
+    0.5 * Math.log(m.railPerMillion / real.railPerMillion) -
+    0.08 * (s.felt.profits - feltReal.profits) -
+    1.5 * (1 - s.quality.economy)
+  s.dev.lnProductivity += growth / 100 / 12
+
+  // Prices and life expectancy move gradually towards where conditions push them.
+  const supplyP = m.privateUnits + 0.5 * m.publicUnits
+  const supplyR = real.privateUnits + 0.5 * real.publicUnits
+  const priceTarget =
+    PRICE_ELASTICITY * (Math.log(m.households / real.households) - Math.log(supplyP / supplyR)) +
+    Math.log(m.gdpPerCapita / real.gdpPerCapita) +
+    s.dev.priceShift
+  s.dev.lnPrice += (priceTarget - s.dev.lnPrice) * PRICE_ADJUST_PER_MONTH
+  const lifeTarget =
+    2.5 * Math.log(m.carePerThousandElderly / real.carePerThousandElderly) +
+    0.04 * (real.pm10 - m.pm10) -
+    (1 - s.quality.health) * 2 +
+    0.3 * Math.log(m.gdpPerCapita / real.gdpPerCapita) +
+    0.05 * s.policyLevels.welfare
+  s.dev.lifeExpectancy += (lifeTarget - s.dev.lifeExpectancy) * LIFE_ADJUST_PER_MONTH
+  s.dev.postSecondary -= ((1 - s.quality.education) * 0.5) / 12
+  s.dev.pm10 *= 1 - 0.03 / 12
+
+  // People move with the city's attractiveness.
+  const attract = attractiveness(m, real, s, t)
+  const migration = (MIGRATION_GROSS / 12) * (attract.total * attract.total - 1)
+  s.dev.pop += migration
+
+  // Money.
+  const taxesP = effectiveTaxes(s.taxes, t)
+  const rs = revenueShare(t)
+  const rm = realRevenueMonth(t)
+  const gdpRatio = m.gdp / real.gdp
+  const priceRatio = m.priceIndex / real.priceIndex
+  const unitsRatio = (m.publicUnits + m.privateUnits) / (real.publicUnits + real.privateUnits)
+  const popRatio = m.population / real.population
+  const revenue: Record<string, number> = {
+    salaries: rm * rs.salaries * Math.pow(taxesP.salaries / realTax('salaries', t), 0.7) * gdpRatio,
+    profits: rm * rs.profits * Math.pow(taxesP.profits / realTax('profits', t), 0.7) * gdpRatio,
+    rates: rm * rs.rates * Math.pow(taxesP.rates / realTax('rates', t), 0.9) * unitsRatio * Math.sqrt(priceRatio),
+    stamp: rm * rs.stamp * priceRatio * stampRatio,
+    land: rm * rs.land * priceRatio + due.landSale * PREMIUM_PER_INDEX * m.priceIndex,
+    investment: rm * rs.investment + ((Math.max(0, s.reserves) - realReserves(t)) * MARGINAL_RETURN) / 12,
+    other: rm * rs.other * popRatio,
+  }
+  if (policyGdpFlow < 0) revenue.gst = -policyGdpFlow
+  const interest = s.bonds.reduce((a, b) => a + (b.principal * b.rate) / 100 / 12, 0)
+  const spending: Record<string, number> = {
+    ...deptSpend,
+    other: realSpendingMonth(t) * spendShare(t).other * popRatio,
+    policies: policyCost + Math.max(0, policyGdpFlow),
+    projects: due.money,
+    interest,
+  }
+  const revenueTotal = Object.values(revenue).reduce((a, b) => a + b, 0)
+  const spendingTotal = Object.values(spending).reduce((a, b) => a + b, 0)
+  s.reserves += revenueTotal - spendingTotal
+  s.year.revenue += revenueTotal
+  s.year.spending += spendingTotal
+
+  for (const b of s.bonds.filter((b) => b.matures <= t)) {
+    s.reserves -= b.principal
+    s.news.push({ t, kind: 'system', text: `償還到期債券 ${fmt(b.principal)} 億元。` })
+  }
+  s.bonds = s.bonds.filter((b) => b.matures > t)
+
+  let autoBorrowed = false
+  if (s.reserves < 0) {
+    issueBond(s, -s.reserves + AUTO_BOND_BUFFER, 5, true)
+    autoBorrowed = true
+    s.signals.push('crisis')
+  }
+
+  s.felt = updateFelt(s.felt, taxesP)
+
+  // End-of-month view of the city.
+  m = computeMetrics(s, t)
+  const debt = debtTotal(s)
+  const debtRatio = debt / m.gdp
+  s.last = {
+    revenue,
+    spending,
+    revenueTotal,
+    spendingTotal,
+    births: yearValue('births', year) / 12,
+    deaths: yearValue('deaths', year) / 12,
+    oneWay: yearValue('oneWayPermits', year) / 12,
+    otherNet: 0,
+    popChange: levelAt('population', t + 1) + s.dev.pop - popStart,
+  }
+  s.last.otherNet = s.last.popChange - s.last.births + s.last.deaths - s.last.oneWay
+
+  if (debtRatio > DEBT.ceiling) {
+    s.status = 'ended'
+    s.endedEarly = { t, reason: '債務超過上限，財政崩潰' }
+    s.news.push({ t, kind: 'system', text: `${year} 年 ${month} 月：債務超過本地生產總值的 30%，財政崩潰，你的任期提早結束。`, tone: 'bad' })
+    snapshot(s, t)
+    s.t = t + 1
+    return
+  }
+
+  // Events.
+  for (const ev of HISTORY_EVENTS) {
+    if (ev.year !== year || ev.month !== month) continue
+    const text = historyEventText(s, ev, t)
+    if (text) s.news.push({ t, kind: 'history', text })
+  }
+  for (const ch of HISTORY_CHOICES) {
+    if (ch.year !== year || ch.month !== month) continue
+    pushInbox(s, { kind: 'history', id: ch.id, title: ch.title, text: ch.text, options: ch.options, defaultOptionId: ch.defaultOptionId })
+  }
+  for (const item of s.inbox.filter((i) => i.deadline <= t)) answer(s, item.uid, item.defaultOptionId, true)
+
+  const ctx: ParallelContext = {
+    t,
+    year,
+    m,
+    real,
+    dev: s.dev,
+    quality: s.quality,
+    attract: attract.total,
+    reserves: s.reserves,
+    realReserves: realReserves(t + 1),
+    debtRatio,
+    yearlySpending: spendingTotal * 12,
+    autoBorrowed,
+  }
+  let fired = 0
+  for (const pe of PARALLEL_EVENTS) {
+    if (fired >= MAX_PARALLEL_PER_MONTH) break
+    const last = s.cooldowns[pe.id]
+    if (last !== undefined && (pe.cooldown === undefined || t - last < pe.cooldown)) continue
+    if (!pe.condition(ctx)) continue
+    const pMonth = pe.p >= 1 ? 1 : 1 - Math.pow(1 - pe.p, 1 / 12)
+    if (rand(s) >= pMonth) continue
+    s.cooldowns[pe.id] = t
+    fired++
+    const text = typeof pe.text === 'function' ? pe.text(ctx) : pe.text
+    if (pe.options) {
+      pushInbox(s, { kind: 'parallel', id: pe.id, title: pe.title, text, options: pe.options, defaultOptionId: pe.defaultOptionId ?? pe.options[0].id })
+    } else {
+      for (const e of pe.effects ?? []) applyEffect(s, e, 1, t)
+      s.news.push({ t, kind: 'parallel', text: `${pe.title}：${text}`, tone: pe.tone })
+    }
+    if (pe.id === 'debtWarning') s.signals.push('crisis')
+  }
+
+  if (month === 12) {
+    snapshot(s, t)
+    s.signals.push('yearEnd')
+  }
+
+  if (t >= LAST_MONTH_INDEX) {
+    if (month !== 12) snapshot(s, t)
+    closeYear(s, m)
+    s.status = 'ended'
+  }
+  s.t = t + 1
+}
+
 export interface Strategy {
-  allocate(s: GameState): Allocation
-  choose(s: GameState, pending: PendingChoice): string
+  onMonth?(s: GameState): void
+  choose(s: GameState, item: InboxItem): string | undefined
 }
 
 export function realOptionId(choiceId: string): string | undefined {
   return HISTORY_CHOICES.find((c) => c.id === choiceId)?.realOptionId
 }
 
-/** Picks what really happened, and the first option for parallel-timeline choices. */
-export function historyChoice(p: PendingChoice): string {
-  return p.kind === 'history' ? realOptionId(p.id)! : p.options[0].id
-}
-
+/** Does what the real government did: real funding levels and real choices. */
 export const FOLLOW_HISTORY: Strategy = {
-  allocate: (s) => realAllocation(s.year),
-  choose: (_s, p) => historyChoice(p),
+  onMonth: (s) => {
+    for (const d of DEPARTMENTS) s.funding[d] = realFunding(d, s.t)
+  },
+  choose: (_s, item) => (item.kind === 'history' ? realOptionId(item.id) : item.defaultOptionId),
 }
 
 /** Runs a whole game without a UI; used by tests and balance checks. */
 export function playThrough(seed: number, strategy: Strategy): GameState {
   const s = newGame(seed)
-  for (let guard = 0; s.status !== 'ended' && guard < 10_000; guard++) {
-    if (s.status === 'allocate') setAllocation(s, strategy.allocate(s))
-    else if (s.status === 'choice') choose(s, strategy.choose(s, s.pending!))
-    else finishYear(s)
+  for (let guard = 0; s.status === 'running' && guard < 5000; guard++) {
+    strategy.onMonth?.(s)
+    for (const item of [...s.inbox]) {
+      const id = strategy.choose(s, item)
+      if (id) answer(s, item.uid, id)
+    }
+    step(s)
   }
   return s
+}
+
+export function optionLabel(options: ChoiceOption[], id: string): string {
+  return options.find((o) => o.id === id)?.label ?? id
 }
 
