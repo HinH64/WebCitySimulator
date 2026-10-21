@@ -81,7 +81,12 @@ export function demandRows(s: GameState, m: Metrics): DemandRow[] {
       { label: '公屋輪候', value: `${nf(m.prhWait, 1)} 年` },
       { label: '私人住宅售價指數', value: nf(m.priceIndex) },
     ],
-    headline: shortage > 0 ? `住宅短缺約 ${nf(shortage, 1)} 萬個` : '住宅數量大致足夠',
+    headline:
+      shortage > 0
+        ? `住宅短缺約 ${nf(shortage, 1)} 萬個`
+        : m.prhWait >= 4
+          ? `公屋輪候長達 ${nf(m.prhWait, 1)} 年`
+          : '住宅數量大致足夠',
     reasons: compact([
       fundingReason(s, 'housing'),
       publicSoon > 0.2 ? `預計未來三年有約 ${nf(publicSoon, 1)} 萬個公營單位落成` : undefined,

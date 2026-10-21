@@ -144,7 +144,7 @@ export interface ChoiceRecord {
   expired: boolean
 }
 
-export type NewsKind = 'history' | 'decision' | 'parallel' | 'report' | 'system'
+export type NewsKind = 'history' | 'inbox' | 'decision' | 'parallel' | 'report' | 'system'
 
 export interface NewsItem {
   t: number

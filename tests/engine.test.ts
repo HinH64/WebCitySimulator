@@ -6,7 +6,7 @@ import { FIRST_YEAR, LAST_YEAR, REAL, realRevenue, yearValue } from '../src/data
 import { computeResult } from '../src/engine/endings'
 import { computeIndicators } from '../src/engine/indicators'
 import { computeMetrics, realMetrics } from '../src/engine/metrics'
-import { debtTotal, newGame, playThrough, step, type Strategy } from '../src/engine/sim'
+import { answer, debtTotal, newGame, playThrough, playerPolicyLevel, step, type Strategy } from '../src/engine/sim'
 import { monthIndex } from '../src/engine/time'
 import { INDICATOR_IDS } from '../src/engine/types'
 import { FOLLOW_HISTORY, UNTOUCHED, allFunding, boost, randomStrategy } from './strategies'
@@ -146,6 +146,16 @@ describe('simulation', () => {
       expect(c.expired).toBe(true)
       expect(c.optionId).toBe(HISTORY_CHOICES.find((h) => h.id === c.id)!.defaultOptionId)
     }
+  })
+
+  it('keeps a pending decision\'s policies as they were until it is answered', () => {
+    const g = newGame(2)
+    while (g.t <= monthIndex(1997, 11)) step(g)
+    expect(g.inbox.some((i) => i.id === 'hos85')).toBe(true)
+    expect(playerPolicyLevel(g, POLICY_BY_ID.hos85, g.t)).toBe('off')
+    const item = g.inbox.find((i) => i.id === 'hos85')!
+    answer(g, item.uid, 'full')
+    expect(playerPolicyLevel(g, POLICY_BY_ID.hos85, g.t)).toBe('full')
   })
 
   it('builds public housing and shortens the queue when housing is funded', () => {

@@ -285,7 +285,17 @@ export function answer(s: GameState, uid: number, optionId: string, expired = fa
 
 function pushInbox(s: GameState, item: Omit<InboxItem, 'uid' | 'received' | 'deadline'>) {
   s.inbox.push({ ...item, uid: s.nextInboxId++, received: s.t, deadline: s.t + INBOX_DEADLINE })
-  s.news.push({ t: s.t, kind: 'decision', text: `收件匣：${item.title}` })
+  // While a decision waits, the policies it covers stay as they were before it came up.
+  if (item.kind === 'history') {
+    for (const o of item.options) {
+      for (const e of o.effects) {
+        if (e.kind === 'policy' && s.policies[e.id] === undefined) {
+          s.policies[e.id] = playerPolicyLevel(s, POLICY_BY_ID[e.id], Math.max(0, s.t - 1))
+        }
+      }
+    }
+  }
+  s.news.push({ t: s.t, kind: 'inbox', text: item.title })
   s.signals.push('choice')
 }
 
