@@ -9,8 +9,8 @@ import { computeResult } from '../src/engine/endings'
 import { computeIndicators } from '../src/engine/indicators'
 import { computeMetrics, realMetrics } from '../src/engine/metrics'
 import { answer, debtTotal, newGame, playThrough, playerPolicyLevel, setPolicy, step, type Strategy } from '../src/engine/sim'
-import { realPolicyLevel, realTax } from '../src/engine/real'
-import { monthIndex, yearOf } from '../src/engine/time'
+import { realPolicyLevel, realReserves, realTax } from '../src/engine/real'
+import { monthIndex, monthOf, yearOf } from '../src/engine/time'
 import { INDICATOR_IDS } from '../src/engine/types'
 import { FOLLOW_HISTORY, UNTOUCHED, allFunding, boost, randomStrategy } from './strategies'
 
@@ -23,7 +23,7 @@ describe('data', () => {
 
   it('has shares that add up to 100%', () => {
     for (const a of SPEND_SHARE_ANCHORS) expect(Object.values(a.shares).reduce((x, y) => x + y, 0), String(a.year)).toBe(100)
-    for (const a of REVENUE_SHARE_ANCHORS) expect(Object.values(a.shares).reduce((x, y) => x + y, 0), String(a.year)).toBe(100)
+    for (const a of REVENUE_SHARE_ANCHORS) expect(Object.values(a.shares).reduce((x, y) => x + y, 0), String(a.year)).toBeCloseTo(100, 9)
   })
 
   it('implies positive revenue every year', () => {
@@ -117,7 +117,9 @@ describe('following history', () => {
       for (const key of ['population', 'prhWait', 'priceIndex', 'unemployment', 'gdp', 'railKm', 'pm10', 'lifeExpectancy', 'postSecondary', 'carePerThousandElderly'] as const) {
         expect(m[key], `${key} ${snap.year}`).toBeCloseTo(real[key], 6)
       }
-      expect(snap.reserves, `reserves ${snap.year}`).toBeCloseTo(yearValue('reserves', snap.year), 3)
+      expect(snap.reserves, `reserves ${snap.year}`).toBeCloseTo(realReserves(snap.t + 1), 3)
+      // Each full year ends on the official figure; the last snapshot comes part-way through 2026.
+      if (monthOf(snap.t) === 12) expect(snap.reserves, `reserves ${snap.year}`).toBeCloseTo(yearValue('reserves', snap.year), 3)
       expect(snap.debt).toBe(0)
     }
   })

@@ -1,6 +1,9 @@
+import { REVENUE_SHARES } from './official'
+
 /**
- * Budget structure. Shares and real funding levels are estimates from spending by policy area
- * and each period's major programmes; they are the baseline the player's budget is compared to.
+ * Budget structure: the baseline the player's budget is compared to. Revenue shares are official
+ * (C&SD); spending shares and real funding levels are still estimates from spending by policy area
+ * and each period's major programmes.
  */
 
 export const DEPARTMENTS = ['housing', 'transport', 'economy', 'education', 'health', 'environment'] as const
@@ -84,14 +87,8 @@ export const REVENUE_LABEL: Record<RevenueId, string> = {
   other: '其他收費',
 }
 
-/** Share of real revenue by source (%), interpolated between anchor years. */
-export const REVENUE_SHARE_ANCHORS: { year: number; shares: Record<RevenueId, number> }[] = [
-  { year: 1997, shares: { salaries: 12, profits: 18, rates: 5, stamp: 8, land: 20, investment: 7, other: 30 } },
-  { year: 2003, shares: { salaries: 17, profits: 20, rates: 6, stamp: 5, land: 5, investment: 6, other: 41 } },
-  { year: 2010, shares: { salaries: 11, profits: 25, rates: 4, stamp: 12, land: 20, investment: 10, other: 18 } },
-  { year: 2019, shares: { salaries: 10, profits: 27, rates: 4, stamp: 11, land: 24, investment: 8, other: 16 } },
-  { year: 2023, shares: { salaries: 12, profits: 30, rates: 5, stamp: 8, land: 4, investment: 10, other: 31 } },
-]
+/** Share of real revenue by source (%), one official anchor per financial year, interpolated between them. */
+export const REVENUE_SHARE_ANCHORS: { year: number; shares: Record<RevenueId, number> }[] = REVENUE_SHARES
 
 export const TAXES = ['salaries', 'profits', 'rates'] as const
 export type TaxId = (typeof TAXES)[number]

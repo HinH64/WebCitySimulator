@@ -30,6 +30,10 @@ const SOURCES: Record<string, { label: string; url: string }> = {
     label: '統計處：香港統計年刊（永久性居住屋宇單位存量）',
     url: 'https://www.censtatd.gov.hk/tc/EIndexbySubject.html?pcode=B1010003&scode=460',
   },
+  TRY: {
+    label: '庫務署：每月財政結果',
+    url: 'https://data.gov.hk/tc-data/dataset/hk-try-trymthfinr-press-release-financial-results',
+  },
   HIF: {
     label: '房委會：房屋統計數字 2026',
     url: 'https://www.housingauthority.gov.hk/tc/common/pdf/about-us/publications-and-statistics/HIF2026.pdf',
@@ -174,26 +178,13 @@ export const REAL = {
       [2026, 41.4],
     ]),
   },
-  reserves: {
-    label: '財政儲備',
-    unit: '億港元',
-    source: '財經事務及庫務局、財政預算案（該年開始的財政年度結束時）',
-    note: '1997、2003、2007、2019、2023、2024 年有報道核對；2025–2026 年為估算',
-    values: [
-      4575, 4344, 4452, 4304, 3723, 3113, 2753, 2959, 3101, 3694, 4929, 4764, 5021, 5953, 6626, 7337, 7457, 8287, 8601,
-      9363, 11029, 11709, 11602, 9023, 9533, 8171, 7332, 6543, 5800, 5800,
-    ],
-  },
-  expenditure: {
-    label: '政府總開支',
-    unit: '億港元',
-    source: '財政預算案',
-    note: '按財政年度的約數',
-    values: [
-      1950, 2370, 2240, 2330, 2670, 2410, 2475, 2420, 2330, 2330, 2340, 3150, 3190, 3010, 3700, 3960, 4350, 3960, 4350,
-      4730, 4710, 5320, 6070, 8070, 6450, 7250, 6330, 6800, 7000, 7100,
-    ],
-  },
+  reserves: official(
+    'reserves',
+    '財政儲備（扣除發債所得）',
+    '億港元',
+    '庫務署、政府統計處（該年開始的財政年度結束時）。2019 年起政府把發債所得計入儲備，但遊戲中真實的香港沒有債務，所以由 2019 年 3 月底的官方儲備開始，按每年未計發債的綜合盈餘向前和向後推算',
+  ),
+  expenditure: official('expenditure', '政府總開支', '億港元', '政府統計處、庫務署（綜合開支，按財政年度）'),
   cpi: official('cpi', '物價指數', '1997=1', '政府統計處（綜合消費物價指數，全年平均）'),
   interestRate: {
     label: '市場利率',

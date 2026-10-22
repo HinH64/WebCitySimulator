@@ -46,8 +46,17 @@ export function SourcesDialog({ onClose }: { onClose: () => void }) {
           <div className="muted small">官方數字，加上你的城市跟真實歷史的差距</div>
         </li>
         <li>
-          <strong>各部門開支比例、真實政府的撥款水平、收入來源比例、各行業比重</strong>
-          <div className="small">按財政預算案的開支和收入結構，以及各時期的主要政策估算。</div>
+          <strong>收入來源比例（薪俸稅、利得稅、差餉、印花稅、賣地、投資收入、其他）</strong>
+          <div className="small">
+            政府統計處（按財政年度）
+            <TableLinks tables={['340-47011']} />
+          </div>
+          <div className="muted small">官方數字；2025 年起沿用 2024 年的比例</div>
+        </li>
+        <li>
+          <strong>各部門開支比例、真實政府的撥款水平、各行業比重</strong>
+          <div className="small">按財政預算案的開支結構，以及各時期的主要政策估算。</div>
+          <div className="muted small">約數：各政策範疇的開支沒有可直接下載的官方數據</div>
         </li>
       </ul>
 

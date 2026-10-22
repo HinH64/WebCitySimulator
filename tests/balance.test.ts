@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { computeResult, type Rating } from '../src/engine/endings'
-import { playThrough, setFunding, type Strategy } from '../src/engine/sim'
+import { debtTotal, playThrough, setFunding, type Strategy } from '../src/engine/sim'
+import { monthOf } from '../src/engine/time'
 import { realFunding } from '../src/engine/real'
 import { FOLLOW_HISTORY, THOUGHTFUL, UNTOUCHED, allFunding, boost, randomStrategy } from './strategies'
 
@@ -19,10 +20,12 @@ function summarise(make: (seed: number) => Strategy) {
   return { ratings, early, mean: total / RUNS }
 }
 
-/** A careful player who also invests in the economy and housing. */
+/** A careful player who also invests in the economy and housing, in years the treasury can afford it. */
 const SKILLED: Strategy = {
   onMonth: (s) => {
     THOUGHTFUL.onMonth!(s)
+    if (s.t > 0 && monthOf(s.t) !== 1) return
+    if (s.reserves - debtTotal(s) < s.last.spendingTotal * 12) return
     setFunding(s, 'economy', Math.max(s.funding.economy, 1.4))
     setFunding(s, 'housing', Math.max(s.funding.housing, realFunding('housing', s.t) + 0.3))
   },

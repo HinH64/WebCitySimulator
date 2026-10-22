@@ -235,6 +235,100 @@ function publicMidYear(y) {
   return now + (next - now) / 4
 }
 
+// ---- Public finances (C&SD 340-47011, 340-47012; Treasury monthly results), HK$ million by financial year ----
+
+// A financial year runs from April; the game files it under the calendar year it starts in.
+const revenueRows = await csd('340-47011')
+const spendingRows = await csd('340-47012')
+const csdRevenue = byPeriod(revenueRows, { REV_TYPEDesc: 'Total' })
+const csdSpending = byPeriod(spendingRows, { EXP_TYPEDesc: 'Total' })
+
+/** The Treasury's monthly results for one financial year (rows Apr–latest month), or undefined if not published. */
+async function treasuryYear(fy) {
+  const res = await fetch(`https://www.try.gov.hk/internet/trymthfinr/press_release_${fy}-${String((fy + 1) % 100).padStart(2, '0')}_e.csv`)
+  if (!res.ok) return undefined
+  const [header, ...lines] = (await res.text()).replace(/^﻿/, '').split(/\r?\n/).filter((l) => l.trim())
+  const names = header.split(',').map((n) => n.trim())
+  return lines.map((l) => Object.fromEntries(l.split(',').map((v, i) => [names[i], v.trim()])))
+}
+const treasury = new Map()
+for (let fy = 2019; ; fy++) {
+  const rows = await treasuryYear(fy)
+  if (!rows) break
+  treasury.set(fy, rows)
+}
+
+const cumulative = (row) => ({
+  revenue: Number(row['Cumulative Consolidated Revenue for the financial year']),
+  spending: -Number(row['Cumulative Consolidated Expenditure for the financial year']),
+})
+
+/**
+ * Consolidated revenue (excluding proceeds from government bonds) and expenditure for a financial
+ * year: C&SD's table, else the Treasury's full year, else the months so far plus the rest of last year.
+ */
+function finances(fy) {
+  const rev = num(csdRevenue.get(String(fy)))
+  const exp = num(csdSpending.get(String(fy)))
+  if (rev !== undefined && exp !== undefined) return { revenue: rev, spending: exp, estimated: false, provisional: false }
+  const rows = treasury.get(fy)
+  if (!rows) return undefined
+  const last = rows[rows.length - 1]
+  const provisional = last.Month.includes('provisional')
+  if (rows.length === 12) return { ...cumulative(last), estimated: false, provisional }
+  const prev = treasury.get(fy - 1)
+  if (!prev || prev.length < 12) return undefined
+  const [now, same, full] = [cumulative(last), cumulative(prev[rows.length - 1]), cumulative(prev[11])]
+  return {
+    revenue: now.revenue + full.revenue - same.revenue,
+    spending: now.spending + full.spending - same.spending,
+    estimated: true,
+    provisional: false,
+  }
+}
+
+/**
+ * Fiscal reserves net of government bonds. From 2019-20 bond proceeds were added to the reserves,
+ * but the real city in the game has no debt, so the reserves start from end-March 2019 and move by
+ * each year's surplus before bonds (backwards for earlier years).
+ */
+const RESERVES_ANCHOR_FY = 2018
+const reservesAnchor = Number(treasury.get(RESERVES_ANCHOR_FY + 1)[0]['Fiscal Reserves at start of the financial year'])
+function reserves(fy) {
+  if (fy === RESERVES_ANCHOR_FY) return reservesAnchor
+  if (fy > RESERVES_ANCHOR_FY) {
+    const [before, f] = [reserves(fy - 1), finances(fy)]
+    return before === undefined || !f ? undefined : before + f.revenue - f.spending
+  }
+  const [after, f] = [reserves(fy + 1), finances(fy + 1)]
+  return after === undefined || !f ? undefined : after - (f.revenue - f.spending)
+}
+
+/** Revenue codes in C&SD 340-47011 behind each of the game's revenue sources; the rest is "other". */
+const REVENUE_CODES = {
+  salaries: ['1115', '1113'],
+  profits: ['1112'],
+  rates: ['128'],
+  stamp: ['124'],
+  land: ['2311', '221'],
+  investment: ['1361', '1362', '137'],
+}
+const revenueByCode = new Map()
+for (const r of revenueRows) revenueByCode.set(`${r.REV_TYPE}:${r.period}`, num(r) ?? 0)
+
+function revenueShares(fy) {
+  const total = num(csdRevenue.get(String(fy)))
+  if (total === undefined) return undefined
+  const shares = {}
+  let rest = 100
+  for (const [k, codes] of Object.entries(REVENUE_CODES)) {
+    shares[k] = round((100 * codes.reduce((a, c) => a + (revenueByCode.get(`${c}:${fy}`) ?? 0), 0)) / total, 1)
+    rest -= shares[k]
+  }
+  shares.other = round(rest, 1)
+  return shares
+}
+
 const lastOf = (values) => values[values.length - 1]
 
 const OFFICIAL = {
@@ -350,6 +444,32 @@ const OFFICIAL = {
     },
     estimateNote: '未有全年數字的年份，用已公布月份的平均',
   }),
+  reserves: series('reserves', {
+    tables: ['340-47011', '340-47012', 'TRY'],
+    decimals: 0,
+    official: (y) => {
+      const [f, v] = [finances(y), reserves(y)]
+      return v === undefined || !f || f.estimated ? undefined : { value: v / 100, provisional: f.provisional }
+    },
+    estimate: (y) => {
+      const v = reserves(y)
+      return v === undefined ? undefined : v / 100
+    },
+    estimateNote: '財政年度未完結，用至今的收支加上去年同期之後的收支推算',
+  }),
+  expenditure: series('expenditure', {
+    tables: ['340-47012', 'TRY'],
+    decimals: 0,
+    official: (y) => {
+      const f = finances(y)
+      return f && !f.estimated ? { value: f.spending / 100, provisional: f.provisional } : undefined
+    },
+    estimate: (y) => {
+      const f = finances(y)
+      return f ? f.spending / 100 : undefined
+    },
+    estimateNote: '財政年度未完結，用至今的開支加上去年同期之後的開支推算',
+  }),
   lifeExpectancy: series('lifeExpectancy', {
     tables: ['DH'],
     decimals: 2,
@@ -391,7 +511,7 @@ writeFileSync(
   `// Generated by scripts/fetch-official.mjs on ${retrieved}. Do not edit; run \`npm run data:official\`.
 
 export interface OfficialSeries {
-  /** C&SD table IDs, or a source code from SOURCES in real.ts (DH, RVD, ADS, HIF). */
+  /** C&SD table IDs, or a source code from SOURCES in real.ts (DH, RVD, ADS, HIF, TRY). */
   tables: string[]
   /** Index 0 = ${FIRST_YEAR}. */
   values: number[]
@@ -408,7 +528,17 @@ export const OFFICIAL = {
 ${body}
 } satisfies Record<string, OfficialSeries>
 
-/** Year-on-year % changes for statistics releases, up to the latest published period (C&SD 310-31001, 510-60001). */
+/**
+ * Share of government revenue by source (%), one anchor per financial year at the middle of the
+ * calendar year it starts in (C&SD 340-47011). Codes per source: ${JSON.stringify(REVENUE_CODES)}.
+ */
+export const REVENUE_SHARES = [
+${YEARS.filter((y) => revenueShares(y))
+  .map((y) => `  { year: ${y + 0.5}, shares: ${JSON.stringify(revenueShares(y))} },`)
+  .join('\n')}
+]
+
+/** Figures for statistics releases, up to the latest published period (C&SD 310-31001, 510-60001; RVD). */
 export const RELEASES = {
   /** Real GDP growth, quarterly from ${FIRST_YEAR} Q1. */
   gdpGrowthQuarterly: ${JSON.stringify(RELEASES.gdpGrowthQuarterly)},
