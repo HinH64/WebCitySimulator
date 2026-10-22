@@ -160,6 +160,81 @@ for (const line of (await lifeRes.text()).split(/\r?\n/)) {
   if (/^\d{4}$/.test(y)) life.set(Number(y), (Number(m) + Number(f)) / 2)
 }
 
+// ---- Private housing (Rating and Valuation Department open data) ----
+
+/** Rows of an RVD CSV (title line, then a header line), keyed by header name. */
+async function rvd(file) {
+  const res = await fetch(`https://www.rvd.gov.hk/datagovhk/${file}`)
+  if (!res.ok) throw new Error(`${file}: HTTP ${res.status}`)
+  const split = (line) => [...line.matchAll(/("([^"]*)"|[^,]*)(,|$)/g)].map((m) => (m[2] ?? m[1]).trim()).slice(0, -1)
+  const [, header, ...lines] = (await res.text()).split(/\r?\n/).filter((l) => l.trim())
+  const names = split(header)
+  return lines.map((l) => Object.fromEntries(split(l).map((v, i) => [names[i], v])))
+}
+
+const value = (s) => (s && !Number.isNaN(Number(s)) ? Number(s) : undefined)
+const priceYear = new Map((await rvd('1.4A.csv')).map((r) => [Number(r.Year), r]))
+// Months as "MM-YYYY".
+const priceMonth = new Map((await rvd('1.4M.csv')).map((r) => [r.Month, r]))
+const monthPrice = (y, m) => value(priceMonth.get(`${String(m).padStart(2, '0')}-${y}`)?.['All Classes'])
+
+// Stock at year end; the game uses mid-year, so the mean of two year ends.
+const privateEnd = new Map((await rvd('Private_Domestic-Stock.csv')).map((r) => [Number(r.Year), Number(r['Total (Stock)'])]))
+const completions = new Map((await rvd('Private_Domestic-Completions.csv')).map((r) => [Number(r.Year), r]))
+
+// The stock falls by 85,000 between the 2002 and 2003 year ends although 26,000 flats were completed:
+// village houses stopped being counted. Earlier year ends are scaled down by the share they made up.
+const VILLAGE_BREAK = 2003
+const villageScale =
+  privateEnd.get(VILLAGE_BREAK) /
+  (privateEnd.get(VILLAGE_BREAK - 1) + Number(completions.get(VILLAGE_BREAK)['Total (Completions)']))
+for (const [y, v] of privateEnd) if (y < VILLAGE_BREAK) privateEnd.set(y, v * villageScale)
+
+/** A year end not yet published: the last one plus this year's completions so far, scaled to the whole year. */
+function privateEndEstimate(y) {
+  const r = completions.get(y)
+  const upTo = r?.['Total (Completions) - Remarks']?.match(/up to \d{2}\.(\d{2})\.\d{4}/)
+  if (!r || !upTo || !privateEnd.has(y - 1)) return undefined
+  return privateEnd.get(y - 1) + (Number(r['Total (Completions)']) * 12) / Number(upTo[1])
+}
+
+// ---- Public housing (transcribed; no single open dataset covers 1997–2026) ----
+
+/**
+ * Public rental housing and subsidised sale flats at end-March (thousands): C&SD Hong Kong Annual
+ * Digest of Statistics, table "Stock of permanent living quarters by type and area", 2010–2014
+ * editions (PDF) for 1999–2013 and 2019 and 2025 editions (CSV) for 2014–2025, where overlapping
+ * editions agree; 2026 from the Housing Authority's Housing in Figures 2026.
+ */
+const PUBLIC_STOCK = {
+  1999: [705.8, 270.3], 2000: [691.1, 324.7], 2001: [685.2, 380.9], 2002: [685.8, 371.7], 2003: [685.3, 396.6],
+  2004: [691.5, 393.2], 2005: [709.2, 388.8], 2006: [716.9, 391.7], 2007: [717.4, 397.6], 2008: [721.6, 397.0],
+  2009: [741.2, 395.8], 2010: [744.6, 392.9], 2011: [747.1, 391.2], 2012: [768.1, 390.9], 2013: [772.1, 391.6],
+  2014: [781.5, 393.9], 2015: [783.2, 396.0], 2016: [786.7, 398.9], 2017: [805.4, 403.1], 2018: [812.9, 409.0],
+  2019: [830.1, 418.8], 2020: [832.1, 424.1], 2021: [843.1, 429.8], 2022: [850.7, 441.7], 2023: [858.6, 448.6],
+  2024: [862.5, 451.2], 2025: [870.9, 466.6], 2026: [886, 473],
+}
+/**
+ * Households living in each (annual averages, thousands): Annual Digest 2000, table 1.10. No edition
+ * still published has the 1997–1998 stock, so it is estimated from these, scaled to the 1999 stock.
+ */
+const PUBLIC_HOUSEHOLDS = { 1997: [714.5, 222.2], 1998: [716.6, 250.0], 1999: [720.0, 290.5] }
+
+function publicEnd(y) {
+  if (PUBLIC_STOCK[y]) return PUBLIC_STOCK[y][0] + PUBLIC_STOCK[y][1]
+  const h = PUBLIC_HOUSEHOLDS[y]
+  if (!h) return undefined
+  const [s, b] = [PUBLIC_STOCK[1999], PUBLIC_HOUSEHOLDS[1999]]
+  return h[0] * (s[0] / b[0]) + h[1] * (s[1] / b[1])
+}
+
+/** Mid-year stock from end-March figures: a quarter of the way to the next end-March. */
+function publicMidYear(y) {
+  const now = publicEnd(y)
+  const next = publicEnd(y + 1) ?? now + (now - publicEnd(y - 1))
+  return now + (next - now) / 4
+}
+
 const lastOf = (values) => values[values.length - 1]
 
 const OFFICIAL = {
@@ -238,6 +313,43 @@ const OFFICIAL = {
     },
     estimateNote: '未有全年數字的年份，用已公布月份的平均',
   }),
+  publicUnits: series('publicUnits', {
+    tables: ['ADS', 'HIF'],
+    decimals: 2,
+    official: (y) =>
+      PUBLIC_STOCK[y] && PUBLIC_STOCK[y + 1] ? { value: publicMidYear(y) / 10, provisional: false } : undefined,
+    estimate: (y) => (publicEnd(y) === undefined ? undefined : publicMidYear(y) / 10),
+    estimateNote:
+      '1997–1998 年沒有存量數字，按住在公屋和資助出售單位的住戶數，以 1999 年的存量比例推算；最近一年要用下一年 3 月的數字，按上一年的增幅推算',
+  }),
+  privateUnits: series('privateUnits', {
+    tables: ['RVD'],
+    decimals: 2,
+    official: (y) =>
+      privateEnd.has(y - 1) && privateEnd.has(y)
+        ? { value: (privateEnd.get(y - 1) + privateEnd.get(y)) / 2 / 10000, provisional: false }
+        : undefined,
+    estimate: (y) => {
+      const end = privateEndEstimate(y)
+      return end === undefined ? undefined : (privateEnd.get(y - 1) + end) / 2 / 10000
+    },
+    estimateNote:
+      '2003 年起差估署的存量不再包括村屋，之前的數字按 2003 年的比例調低；年底存量未公布的年份，用上一年底存量加今年至今的落成量（按全年比例）推算',
+  }),
+  priceIndex: series('priceIndex', {
+    tables: ['RVD'],
+    decimals: 1,
+    official: (y) => {
+      const r = priceYear.get(y)
+      const v = value(r?.['All Classes'])
+      return v === undefined ? undefined : { value: v, provisional: r['All Classes - Remarks'] === 'P' }
+    },
+    estimate: (y) => {
+      const xs = Array.from({ length: 12 }, (_, i) => monthPrice(y, i + 1)).filter((x) => x !== undefined)
+      return xs.length ? mean(xs) : undefined
+    },
+    estimateNote: '未有全年數字的年份，用已公布月份的平均',
+  }),
   lifeExpectancy: series('lifeExpectancy', {
     tables: ['DH'],
     decimals: 2,
@@ -247,18 +359,14 @@ const OFFICIAL = {
   }),
 }
 
-// ---- Higher-frequency figures for statistics releases (C&SD 310-31001, 510-60001) ----
+// ---- Higher-frequency figures for statistics releases (C&SD 310-31001, 510-60001; RVD) ----
 
-/** A year-on-year % series from FIRST_YEAR's first period, up to the latest published one. */
-function periodic(map, periods) {
-  const out = []
-  for (const p of periods) {
-    const v = num(map.get(p))
-    if (v === undefined) break
-    out.push(v)
-  }
-  return out
+/** Values from FIRST_YEAR's first period up to the latest published one. */
+function untilMissing(values) {
+  const i = values.findIndex((v) => v === undefined)
+  return i === -1 ? values : values.slice(0, i)
 }
+const periodic = (map, periods) => untilMissing(periods.map((p) => num(map.get(p))))
 
 const quarters = YEARS.flatMap((y) => ['03', '06', '09', '12'].map((m) => `${y}${m}`))
 const months = YEARS.flatMap((y) => Array.from({ length: 12 }, (_, i) => `${y}${String(i + 1).padStart(2, '0')}`))
@@ -270,6 +378,7 @@ const RELEASES = {
   gdpGrowthQuarterly: periodic(realGrowthQ, quarters),
   gdpGrowthYearly: periodic(realGrowthY, YEARS.map(String)),
   inflationMonthly: periodic(inflationM, months),
+  priceIndexMonthly: untilMissing(YEARS.flatMap((y) => Array.from({ length: 12 }, (_, i) => monthPrice(y, i + 1)))),
 }
 
 const retrieved = new Date().toISOString().slice(0, 10)
@@ -282,7 +391,7 @@ writeFileSync(
   `// Generated by scripts/fetch-official.mjs on ${retrieved}. Do not edit; run \`npm run data:official\`.
 
 export interface OfficialSeries {
-  /** C&SD table IDs, or 'DH' for the Department of Health. */
+  /** C&SD table IDs, or a source code from SOURCES in real.ts (DH, RVD, ADS, HIF). */
   tables: string[]
   /** Index 0 = ${FIRST_YEAR}. */
   values: number[]
@@ -307,6 +416,8 @@ export const RELEASES = {
   gdpGrowthYearly: ${JSON.stringify(RELEASES.gdpGrowthYearly)},
   /** Composite CPI inflation, monthly from January ${FIRST_YEAR}. */
   inflationMonthly: ${JSON.stringify(RELEASES.inflationMonthly)},
+  /** RVD private domestic price index (1999 = 100), monthly from January ${FIRST_YEAR}. */
+  priceIndexMonthly: ${JSON.stringify(RELEASES.priceIndexMonthly)},
 }
 `,
 )

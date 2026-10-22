@@ -283,7 +283,8 @@ export interface StatsPoint {
   /** Share of people aged 65 or over minus the real share, percentage points. */
   elderlyGap: number
   unemployment: number
-  priceIndex: number
+  /** Property price index ÷ the real one. */
+  priceRatio: number
 }
 
 export interface MonthFlows {

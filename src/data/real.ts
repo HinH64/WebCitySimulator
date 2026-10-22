@@ -22,12 +22,23 @@ export interface Series {
   tables?: string[]
 }
 
-/** Link to an official table: a C&SD table ID, or 'DH' for the Department of Health dataset. */
+/** Official sources that are not C&SD tables, by the code OfficialSeries.tables uses. */
+const SOURCES: Record<string, { label: string; url: string }> = {
+  DH: { label: '衞生署：出生時平均預期壽命', url: 'https://data.gov.hk/tc-data/dataset/hk-dh-dh_ncddhss-ncdd-dataset-9' },
+  RVD: { label: '差估署：物業市場統計', url: 'https://data.gov.hk/tc-data/dataset/hk-rvd-tsinfo_rvd-property-market-statistics' },
+  ADS: {
+    label: '統計處：香港統計年刊（永久性居住屋宇單位存量）',
+    url: 'https://www.censtatd.gov.hk/tc/EIndexbySubject.html?pcode=B1010003&scode=460',
+  },
+  HIF: {
+    label: '房委會：房屋統計數字 2026',
+    url: 'https://www.housingauthority.gov.hk/tc/common/pdf/about-us/publications-and-statistics/HIF2026.pdf',
+  },
+}
+
+/** Link to an official source: a C&SD table ID or one of SOURCES. */
 export function tableLink(table: string): { label: string; url: string } {
-  if (table === 'DH') {
-    return { label: '衞生署：出生時平均預期壽命', url: 'https://data.gov.hk/tc-data/dataset/hk-dh-dh_ncddhss-ncdd-dataset-9' }
-  }
-  return { label: `統計處表 ${table}`, url: `https://www.censtatd.gov.hk/tc/web_table.html?id=${table}` }
+  return SOURCES[table] ?? { label: `統計處表 ${table}`, url: `https://www.censtatd.gov.hk/tc/web_table.html?id=${table}` }
 }
 
 /** "2025、2026" style list, collapsing runs of three or more years into a range. */
@@ -97,26 +108,8 @@ export const REAL = {
     '人',
     '政府統計處（綜合住戶統計調查，按住戶人數分佈計算，6 人或以上按 6.5 人計，與公布的平均住戶人數一致）',
   ),
-  publicUnits: {
-    label: '公營房屋單位（公屋及資助出售）',
-    unit: '萬個',
-    source: '房屋委員會、運輸及房屋局',
-    note: '約數',
-    values: [
-      91, 93, 97, 101, 105, 108, 110, 111, 112, 113, 114, 115, 116, 117, 117, 118, 119, 120, 121, 122, 123, 124, 125,
-      126, 127, 128, 129, 131, 133, 135,
-    ],
-  },
-  privateUnits: {
-    label: '私人住宅單位',
-    unit: '萬個',
-    source: '差餉物業估價署',
-    note: '約數',
-    values: [
-      118, 121, 124, 126, 128, 131, 134, 136, 137, 138, 139, 140, 141, 142, 143, 144, 145, 146, 148, 149, 151, 153, 155,
-      157, 158, 160, 162, 165, 167, 169,
-    ],
-  },
+  publicUnits: official('publicUnits', '公營房屋單位（公屋及資助出售）', '萬個', '政府統計處、房屋委員會（年中，由每年 3 月底存量推算）'),
+  privateUnits: official('privateUnits', '私人住宅單位', '萬個', '差餉物業估價署（年中，由年底存量推算）'),
   prhWait: {
     label: '公屋平均輪候時間',
     unit: '年',
@@ -127,16 +120,7 @@ export const REAL = {
       5.5, 5.8, 6.1, 5.6, 5.3, 5.3, 4.8,
     ],
   },
-  priceIndex: {
-    label: '私人住宅售價指數',
-    unit: '1999=100',
-    source: '差餉物業估價署（全年平均）',
-    note: '約數；2025–2026 年為估算',
-    values: [
-      163.1, 120.5, 100, 89.9, 78, 69.9, 61.6, 78, 92, 92.7, 103.3, 120.5, 121.3, 150.9, 182.1, 206.2, 242.4, 256.9,
-      296.8, 286.1, 333.9, 377, 382, 381.1, 393.3, 370.9, 343.1, 304, 292, 300,
-    ],
-  },
+  priceIndex: official('priceIndex', '私人住宅售價指數', '1999=100', '差餉物業估價署（全年平均）'),
   unemployment: official('unemployment', '失業率', '%', '政府統計處（全年平均）'),
   gdpPerCapita: official('gdpPerCapita', '人均本地生產總值（當時價格）', '千港元', '政府統計處'),
   railKm: {

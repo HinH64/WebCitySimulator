@@ -22,7 +22,7 @@ export function SourcesDialog({ onClose }: { onClose: () => void }) {
     <Dialog title="數據來源與模型" onClose={onClose} wide>
       <h3>數據</h3>
       <p className="warn-box small">
-        標明「官方數字」的系列取自政府統計處和衞生署的公開數據（{RETRIEVED} 下載）。其餘仍是根據公開報道整理的約數，會逐項換成官方數據。
+        標明「官方數字」的系列取自政府統計處、衞生署、差餉物業估價署和房屋委員會的公開數據（{RETRIEVED} 下載）。其餘仍是根據公開報道整理的約數，會逐項換成官方數據。
       </p>
       <ul className="sources">
         {series.map(([id, s]) => (
@@ -38,10 +38,10 @@ export function SourcesDialog({ onClose }: { onClose: () => void }) {
           </li>
         ))}
         <li>
-          <strong>統計數字新聞：本地生產總值實質增長（每季、每年）、綜合消費物價指數按年變動（每月）</strong>
+          <strong>統計數字新聞：本地生產總值實質增長（每季、每年）、綜合消費物價指數按年變動（每月）、私人住宅售價指數（每月）</strong>
           <div className="small">
-            政府統計處
-            <TableLinks tables={['310-31001', '510-60001']} />
+            政府統計處、差餉物業估價署
+            <TableLinks tables={['310-31001', '510-60001', 'RVD']} />
           </div>
           <div className="muted small">官方數字，加上你的城市跟真實歷史的差距</div>
         </li>

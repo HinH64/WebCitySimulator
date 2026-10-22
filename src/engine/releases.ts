@@ -41,8 +41,11 @@ const pct = (v: number) => fmt(Math.abs(v) * 100)
 /** A logged figure at month t; before the game starts the city is history itself. */
 function at(s: GameState, key: keyof StatsPoint, t: number): number {
   if (t >= 0) return s.statsLog[t][key]
-  return key === 'gdpRatio' || key === 'perCapitaRatio' ? 1 : 0
+  return key === 'gdpRatio' || key === 'perCapitaRatio' || key === 'priceRatio' ? 1 : 0
 }
+
+/** Index into the monthly official series (January 1997 = 0) for month t. */
+const calendarMonth = (t: number) => (yearOf(t) - FIRST_YEAR) * 12 + monthOf(t) - 1
 
 /** Mean of a logged figure over the n months ending at month t. */
 function avg(s: GameState, key: keyof StatsPoint, t: number, n: number): number {
@@ -116,7 +119,7 @@ function gdp(s: GameState, t: number): Release | undefined {
 
 /** Monthly, for the three months to last month: prices moving into or out of deflation or high inflation. */
 function prices(s: GameState, t: number): Release | undefined {
-  const i = (yearOf(t - 1) - FIRST_YEAR) * 12 + monthOf(t - 1) - 1
+  const i = calendarMonth(t - 1)
   const recent = OFFICIAL.inflationMonthly.slice(i - 2, i + 1)
   if (i < 2 || recent.length < 3) return undefined
   const inflation = (recent[0] + recent[1] + recent[2]) / 3
@@ -140,17 +143,32 @@ function prices(s: GameState, t: number): Release | undefined {
     : { text: `通脹回落，綜合消費物價指數按年上升 ${x}%。`, tone: 'good' }
 }
 
-/** Monthly: property prices above every earlier month (the 1997 peak at first), or down 10% in a year. */
-function property(s: GameState, t: number): Release | undefined {
-  if (t < 12) return undefined
-  const index = s.statsLog[t].priceIndex
-  const yoy = index / s.statsLog[t - 12].priceIndex - 1
+/** The city's property price index for month t: the official monthly index times the city's ratio to history. */
+function cityPrice(s: GameState, t: number): number | undefined {
+  const i = calendarMonth(t)
+  const official = i >= 0 ? OFFICIAL.priceIndexMonthly[i] : undefined
+  return official === undefined ? undefined : official * at(s, 'priceRatio', t)
+}
 
-  // The highest index of any earlier month, kept as a running value.
-  const peak = s.releases.pricePeak ?? { t: 0, v: Math.max(...s.statsLog.slice(0, t).map((p) => p.priceIndex)) }
-  s.releases.pricePeak = { t, v: Math.max(peak.v, index) }
+/**
+ * Monthly, for last month: property prices above every earlier month (the 1997 peak at first, so
+ * only from mid-1998), or down 10% in a year.
+ */
+function property(s: GameState, t: number): Release | undefined {
+  const index = cityPrice(s, t - 1)
+  const yearAgo = cityPrice(s, t - 13)
+  if (index === undefined || yearAgo === undefined) return undefined
+  const yoy = index / yearAgo - 1
+
+  // The highest index of any earlier month since January 1997, kept as a running value.
+  let peak = s.releases.pricePeak?.v
+  if (peak === undefined) {
+    peak = 0
+    for (let k = monthIndex(FIRST_YEAR, 1); k < t - 1; k++) peak = Math.max(peak, cityPrice(s, k) ?? 0)
+  }
+  s.releases.pricePeak = { t, v: Math.max(peak, index) }
   const high = s.releases.priceHigh
-  if (index > peak.v && (!high || t - high.t >= PRICE_HIGH_GAP)) {
+  if (index > peak && t >= 12 && (!high || t - high.t >= PRICE_HIGH_GAP)) {
     s.releases.priceHigh = { t, v: index }
     return high
       ? { text: `樓價再創新高，私人住宅售價指數升至 ${fmt(index, 0)}，一年上升 ${pct(yoy)}%。`, tone: 'neutral' }
@@ -198,7 +216,7 @@ export function publishReleases(s: GameState, m: Metrics) {
     popGap: m.population - real.population,
     elderlyGap: (100 * m.elderly) / m.population - (100 * real.elderly) / real.population,
     unemployment: m.unemployment,
-    priceIndex: m.priceIndex,
+    priceRatio: m.priceIndex / real.priceIndex,
   }
   for (const check of RELEASE_CHECKS) {
     const r = check(s, t)
