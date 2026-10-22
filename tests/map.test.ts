@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { CANDIDATE_ROUTES, CANDIDATE_SITES, MAP_PROJECTS, RAIL_ROUTES } from '../src/data/mapProjects'
 import { MAP_COLS, MAP_ROWS } from '../src/data/mapBase'
 import { MAP_STATIONS } from '../src/data/mapStations'
-import { KIND_INDEX, areaCells, baseMap, projectCells, realMapAt, realRailAt } from '../src/engine/map'
+import { KIND_INDEX, areaCells, baseMap, cityMapAt, projectCells, realMapAt, realRailAt } from '../src/engine/map'
+import { FOLLOW_HISTORY, playThrough, setPolicy, type Strategy } from '../src/engine/sim'
 import { LAST_MONTH_INDEX, monthIndex } from '../src/engine/time'
+import { allFunding, boost } from './strategies'
 
 const count = (grid: Uint8Array, cells: number[], kind: keyof typeof KIND_INDEX) => cells.filter((c) => grid[c] === KIND_INDEX[kind]).length
 const project = (id: string) => MAP_PROJECTS.find((p) => p.id === id)!
@@ -61,12 +63,77 @@ describe('real Hong Kong on the map', () => {
   it('grows the railway as lines open', () => {
     const start = realRailAt(0)
     const end = realRailAt(LAST_MONTH_INDEX)
-    expect(start.stations).not.toContain('東涌')
-    expect(start.stations).toContain('羅湖')
+    const names = (r: ReturnType<typeof realRailAt>) => r.stations.map((st) => st.name)
+    expect(names(start)).not.toContain('東涌')
+    expect(names(start)).toContain('羅湖')
     expect(end.stations.length).toBeGreaterThan(95)
     expect(end.segments.length).toBeGreaterThan(start.segments.length * 2)
     // The Eastern Harbour Crossing stretch runs from Lam Tin until the Tseung Kwan O line takes it over.
     expect(start.segments.some((s) => s.route === 'eastHarbour')).toBe(true)
     expect(end.segments.some((s) => s.route === 'eastHarbour')).toBe(false)
+  })
+})
+
+const kinds = (grid: Uint8Array, ...ks: (keyof typeof KIND_INDEX)[]) => grid.filter((v) => ks.some((k) => KIND_INDEX[k] === v)).length
+const at = (s: { t: number }) => Math.min(s.t, LAST_MONTH_INDEX)
+
+describe('the city on the map', () => {
+  it('is real Hong Kong when following history', () => {
+    const s = playThrough(42, FOLLOW_HISTORY, { events: false })
+    const map = cityMapAt(s)
+    expect(map.grid).toEqual(realMapAt(LAST_MONTH_INDEX))
+    expect(map.rail).toEqual(realRailAt(LAST_MONTH_INDEX))
+  })
+
+  it('adds homes when the city builds more, and takes them off when it builds less', () => {
+    const more = playThrough(3, boost('housing', 1.8))
+    expect(more.dev.publicUnits + more.dev.privateUnits).toBeGreaterThan(5)
+    expect(kinds(cityMapAt(more).grid, 'public', 'private')).toBeGreaterThan(kinds(realMapAt(at(more)), 'public', 'private') + 20)
+
+    const less = playThrough(3, allFunding(0.7))
+    expect(less.dev.publicUnits).toBeLessThan(-2)
+    expect(kinds(cityMapAt(less).grid, 'public')).toBeLessThan(kinds(realMapAt(at(less)), 'public'))
+  })
+
+  it('builds on country park edges only under that policy', () => {
+    const edge: Strategy = {
+      onMonth: (s) => {
+        FOLLOW_HISTORY.onMonth!(s)
+        setPolicy(s, 'countryPark', 'on')
+      },
+      choose: FOLLOW_HISTORY.choose,
+    }
+    const sites = CANDIDATE_SITES.filter((c) => c.countryPark).flatMap((c) => areaCells(c.area))
+    const s = playThrough(3, edge)
+    const map = cityMapAt(s)
+    expect(kinds(realMapAt(at(s)), 'woodland', 'shrubGrass')).toBeGreaterThan(kinds(map.grid, 'woodland', 'shrubGrass'))
+    expect(sites.filter((c) => map.grid[c] === KIND_INDEX.public || map.grid[c] === KIND_INDEX.private).length).toBeGreaterThan(0)
+  })
+
+  it('opens more railway with more transport money, and less with less', () => {
+    const more = playThrough(3, boost('transport', 1.8))
+    expect(cityMapAt(more).rail.segments.length).toBeGreaterThan(realRailAt(at(more)).segments.length)
+    const less = playThrough(3, allFunding(0.7))
+    expect(cityMapAt(less).rail.segments.length).toBeLessThan(realRailAt(at(less)).segments.length)
+  })
+
+  it('shows an industry that grows faster than history', () => {
+    const tech: Strategy = {
+      onMonth: (s) => {
+        FOLLOW_HISTORY.onMonth!(s)
+        setPolicy(s, 'industryFocus', 'professional')
+      },
+      choose: FOLLOW_HISTORY.choose,
+    }
+    const s = playThrough(3, tech)
+    expect(kinds(cityMapAt(s).grid, 'sciencePark')).toBeGreaterThan(kinds(realMapAt(at(s)), 'sciencePark'))
+  })
+
+  it('draws a month quickly', () => {
+    const s = playThrough(3, boost('housing', 1.8))
+    cityMapAt(s)
+    const start = performance.now()
+    for (let i = 0; i < 10; i++) cityMapAt(s)
+    expect((performance.now() - start) / 10).toBeLessThan(20)
   })
 })
