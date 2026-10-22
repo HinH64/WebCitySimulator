@@ -551,6 +551,14 @@ input[type='range'] {
 .map-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.25rem 0.85rem; font-size: 0.8rem; color: var(--ink-2); }
 .map-legend .swatch { display: inline-block; width: 0.8rem; height: 0.8rem; border-radius: 2px; margin-right: 0.3rem; vertical-align: -0.1rem; border: 1px solid rgba(0, 0, 0, 0.12); }
 .map-note { margin: 0; font-size: 0.8rem; color: var(--ink-2); }
+.map-compare { display: grid; gap: 0.6rem; min-width: 0; }
+.map-compare-controls { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+.map-compare-controls input[type='range'] { flex: 1; min-width: 10rem; accent-color: var(--accent); }
+.map-compare-year { font-variant-numeric: tabular-nums; min-width: 9rem; }
+.map-compare-labels { display: flex; justify-content: space-between; color: var(--ink-2); }
+.map-compare .map-frame canvas { cursor: ew-resize; }
+.map-compare-divider { display: flex; align-items: center; gap: 0.5rem; color: var(--ink-2); }
+.map-compare-divider input { flex: 1; max-width: 16rem; accent-color: var(--accent); }
 
 .news { min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 0.9rem 1.1rem; }
 .news-title { font-size: 1.2rem; margin-bottom: 0.25rem; }

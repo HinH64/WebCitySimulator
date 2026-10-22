@@ -21,7 +21,7 @@ import { yearValue } from '../data/real'
 import { clamp, computeMetrics, realMetrics } from './metrics'
 import { realSectors } from './real'
 import { LAST_MONTH_INDEX, monthIndex, yearOf } from './time'
-import type { GameState } from './types'
+import type { GameState, Metrics } from './types'
 
 export const KIND_INDEX = Object.fromEntries(MAP_TILE_KINDS.map((k, i) => [k, i])) as Record<TileKind, number>
 
@@ -300,19 +300,35 @@ export interface CityMap {
   haze: number
 }
 
+/** Real Hong Kong at month t, as a city map. */
+export function realCityMapAt(t: number): CityMap {
+  return { grid: realMapAt(t), rail: realRailAt(t), haze: hazeOf(realMetrics(t).pm10) }
+}
+
+const hazeOf = (pm10: number) => clamp((pm10 - 20) / 50, 0, 1)
+
+/** The player's Hong Kong now. */
+export function cityMapAt(s: GameState): CityMap {
+  const t = Math.min(s.t, LAST_MONTH_INDEX)
+  // The industry mix is the one at the start of month s.t, which is past the end once the term is over.
+  return cityMapFrom(computeMetrics(s, t), t, s.t)
+}
+
 /**
- * The player's Hong Kong now: real Hong Kong's map at the same month, changed where the city differs.
+ * The city's map from its figures at month t (now, or a yearly snapshot): real Hong Kong's map at the
+ * same month, changed where the city differs.
  * - Homes: extra public and private homes go first on country park edge land the city gave up, then on
  *   sites real Hong Kong developed later, then on candidate sites. Missing homes take the newest real
  *   estates off the map.
  * - Industries ahead of history fill their candidate sites (finance offices, trade logistics, tourism
  *   attractions, science parks).
  * - Rail ahead of or behind history opens or removes lines (cityRail).
+ *
+ * `sectorMonth` is the month whose real industry mix `m.sectors` matches: the current month for a city in
+ * play, the next one for a yearly snapshot, which records the mix after the month's growth.
  */
-export function cityMapAt(s: GameState): CityMap {
-  const t = Math.min(s.t, LAST_MONTH_INDEX)
+export function cityMapFrom(m: Metrics, t: number, sectorMonth = t): CityMap {
   const grid = realMapAt(t)
-  const m = computeMetrics(s, t)
   const real = realMetrics(t)
   const taken = new Set<number>()
   const put = (cell: number, kind: TileKind) => {
@@ -325,9 +341,9 @@ export function cityMapAt(s: GameState): CityMap {
   const parkEdge = greenGap < 0 ? sitePool(t, (site) => Boolean(site.countryPark), taken).slice(0, Math.round((-greenGap / 100) * landCells)) : []
   parkEdge.forEach((c) => put(c, 'construction'))
 
-  const shares = realSectors(t)
+  const shares = realSectors(sectorMonth)
   for (const use of ['finance', 'trade', 'tourism', 'professional'] as const) {
-    const ahead = s.sectors[use] / shares[use] - 1
+    const ahead = m.sectors[use] / shares[use] - 1
     if (ahead <= 0) continue
     const pool = sitePool(t, (site) => site.use === use, taken)
     const kinds = SECTOR_KIND[use]
@@ -336,7 +352,7 @@ export function cityMapAt(s: GameState): CityMap {
 
   const need: Record<Housing, number> = { public: 0, private: 0 }
   for (const kind of ['public', 'private'] as const) {
-    const gap = Math.round(s.dev[kind === 'public' ? 'publicUnits' : 'privateUnits'] / unitsPerCell(kind))
+    const gap = Math.round((m[kind === 'public' ? 'publicUnits' : 'privateUnits'] - real[kind === 'public' ? 'publicUnits' : 'privateUnits']) / unitsPerCell(kind))
     if (gap > 0) need[kind] = gap
     else if (gap < 0) for (const h of realHousingOrder(kind).filter((h) => h.month <= t).slice(gap)) grid[h.cell] = h.before
   }
@@ -361,7 +377,7 @@ export function cityMapAt(s: GameState): CityMap {
   }
   fill(sitePool(t, (site) => site.use === 'housing' && !site.countryPark, taken))
 
-  return { grid, rail: cityRail(s.dev.rail, t), haze: clamp((m.pm10 - 20) / 50, 0, 1) }
+  return { grid, rail: cityRail(m.railKm - real.railKm, t), haze: hazeOf(m.pm10) }
 }
 
 // ---- Layers ----

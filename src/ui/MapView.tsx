@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from 'react'
 import { MAP_CELL, MAP_COLS, MAP_ORIGIN, MAP_ROWS, MAP_TILE_KINDS } from '../data/mapBase'
 import type { TileKind } from '../data/mapProjects'
 import {
@@ -53,25 +53,25 @@ interface View {
 
 const FULL: View = { z: 1, cx: MAP_COLS / 2, cy: MAP_ROWS / 2 }
 
-function cssColour(el: Element, name: string, fallback: string): [number, number, number] {
+export function cssColour(el: Element, name: string, fallback: string): [number, number, number] {
   const v = getComputedStyle(el).getPropertyValue(name).trim()
   return hexToRgb(/^#[0-9a-f]{6}$/i.test(v) ? v : fallback)
 }
 
-/** One pixel per cell, coloured for the layer. */
-function layerBitmap(map: CityMap, layer: MapLayer, data: LayerData, sea: [number, number, number], muted: [number, number, number]) {
+/** One pixel per cell, coloured for the layer; without layer data, land use. */
+export function layerBitmap(map: CityMap, layer: MapLayer, data: LayerData | undefined, sea: [number, number, number], muted: [number, number, number]) {
   const canvas = document.createElement('canvas')
   canvas.width = MAP_COLS
   canvas.height = MAP_ROWS
   const ctx = canvas.getContext('2d')!
   const image = ctx.createImageData(MAP_COLS, MAP_ROWS)
   const kindRgb = Object.fromEntries(Object.entries(KIND_COLOUR).map(([k, c]) => [k, hexToRgb(c)])) as Record<TileKind, [number, number, number]>
-  const maxPeople = Math.max(...HOMES.map((k) => data.people[k]))
+  const maxPeople = data ? Math.max(...HOMES.map((k) => data.people[k])) : 1
   for (let i = 0; i < map.grid.length; i++) {
     const kind = MAP_TILE_KINDS[map.grid[i]] as TileKind
     let rgb: [number, number, number]
     if (kind === 'sea') rgb = sea
-    else if (layer === 'land' || (layer === 'rail' && data.coverage[i])) rgb = kindRgb[kind]
+    else if (!data || layer === 'land' || (layer === 'rail' && data.coverage[i])) rgb = kindRgb[kind]
     else if (layer === 'density' && HOMES.includes(kind as HomeKind)) rgb = hexToRgb(scaleColour(DENSITY_SCALE, data.people[kind as HomeKind] / maxPeople - 1e-9))
     else if (layer === 'price' && kind === 'private') rgb = hexToRgb(scaleColour(PRICE_SCALE, data.prices[regionOf(i)] / PRICE_TOP))
     else {
@@ -82,6 +82,136 @@ function layerBitmap(map: CityMap, layer: MapLayer, data: LayerData, sea: [numbe
   }
   ctx.putImageData(image, 0, 0)
   return canvas
+}
+
+export interface MapSize {
+  /** CSS pixels. */
+  w: number
+  h: number
+  /** Device pixels per cell when the whole map is shown. */
+  base: number
+}
+
+/** Sizes a map frame so each cell is a whole number of device pixels; tracks the frame's width. */
+export function useMapSize(frameRef: RefObject<HTMLDivElement | null>, maxHeight: number): MapSize {
+  const [size, setSize] = useState<MapSize>({ w: 0, h: 0, base: 1 })
+  useEffect(() => {
+    const frame = frameRef.current
+    if (!frame) return
+    const update = () => {
+      const dpr = window.devicePixelRatio || 1
+      const w = frame.clientWidth
+      const maxH = Math.min(maxHeight, window.innerHeight * 0.6)
+      let base = Math.max(1, Math.floor((w * dpr) / MAP_COLS))
+      let h = Math.ceil((MAP_ROWS * base) / dpr)
+      if (h > maxH) {
+        base = Math.max(1, Math.floor((maxH * dpr) / MAP_ROWS))
+        h = Math.ceil((MAP_ROWS * base) / dpr)
+      }
+      setSize({ w, h, base })
+    }
+    update()
+    const ro = new ResizeObserver(update)
+    ro.observe(frame)
+    return () => ro.disconnect()
+  }, [frameRef, maxHeight])
+  return size
+}
+
+interface DrawOptions {
+  bitmap: HTMLCanvasElement
+  map: CityMap
+  t: number
+  /** Canvas size in device pixels. */
+  W: number
+  H: number
+  cellPx: number
+  /** Centre of the view, in cells. */
+  cx: number
+  cy: number
+  flash: number[]
+  dpr: number
+  /** Sea colour; read from the canvas's theme when it is on the page. */
+  sea?: [number, number, number]
+}
+
+/** Draws the layer bitmap, haze, flashing cells, railway and stations (names once zoomed in). */
+export function drawMap(canvas: HTMLCanvasElement, o: DrawOptions) {
+  const { bitmap, map, W, H, cellPx, dpr } = o
+  canvas.width = W
+  canvas.height = H
+  const ctx = canvas.getContext('2d')!
+  const sea = o.sea ?? cssColour(canvas, '--map-sea', KIND_COLOUR.sea)
+  ctx.fillStyle = `rgb(${sea.join(',')})`
+  ctx.fillRect(0, 0, W, H)
+  const ox = Math.round(W / 2 - o.cx * cellPx)
+  const oy = Math.round(H / 2 - o.cy * cellPx)
+  ctx.imageSmoothingEnabled = false
+  ctx.drawImage(bitmap, ox, oy, MAP_COLS * cellPx, MAP_ROWS * cellPx)
+  // Haze covers the whole frame, sea included, so it does not outline the map.
+  if (map.haze > 0) {
+    ctx.fillStyle = `rgba(150, 150, 150, ${(map.haze * 0.25).toFixed(3)})`
+    ctx.fillRect(0, 0, W, H)
+  }
+  const X = (e: number) => ox + ((e - MAP_ORIGIN.e) / MAP_CELL) * cellPx
+  const Y = (n: number) => oy + ((MAP_ORIGIN.n - n) / MAP_CELL) * cellPx
+
+  for (const c of o.flash) {
+    ctx.strokeStyle = '#ffd400'
+    ctx.lineWidth = Math.max(1, dpr)
+    ctx.strokeRect(ox + (c % MAP_COLS) * cellPx + 0.5, oy + Math.floor(c / MAP_COLS) * cellPx + 0.5, cellPx - 1, cellPx - 1)
+  }
+
+  const lw = Math.min(4 * dpr, Math.max(1.5 * dpr, cellPx * 0.3))
+  ctx.lineCap = 'round'
+  for (const [colour, width] of [['rgba(255,255,255,0.9)', lw + 2 * dpr], ['#3d3d3d', lw]] as const) {
+    ctx.strokeStyle = colour
+    ctx.lineWidth = width
+    ctx.beginPath()
+    for (const s of map.rail.segments) {
+      ctx.moveTo(X(s.from[0]), Y(s.from[1]))
+      ctx.lineTo(X(s.to[0]), Y(s.to[1]))
+    }
+    ctx.stroke()
+  }
+  const r = Math.min(5 * dpr, Math.max(2 * dpr, cellPx * 0.4))
+  ctx.fillStyle = '#3d7a4a'
+  for (const s of lightRailStops(o.t)) {
+    ctx.beginPath()
+    ctx.arc(X(s.e), Y(s.n), r * 0.45, 0, Math.PI * 2)
+    ctx.fill()
+  }
+  ctx.lineWidth = 1.5 * dpr
+  ctx.strokeStyle = '#3d3d3d'
+  ctx.fillStyle = '#ffffff'
+  for (const s of map.rail.stations) {
+    ctx.beginPath()
+    ctx.arc(X(s.e), Y(s.n), r, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.stroke()
+  }
+  if (cellPx >= 10 * dpr) {
+    ctx.font = `${12 * dpr}px ${getComputedStyle(canvas).fontFamily}`
+    ctx.lineWidth = 3 * dpr
+    ctx.strokeStyle = 'rgba(255,255,255,0.9)'
+    ctx.fillStyle = '#1f2328'
+    for (const s of map.rail.stations) {
+      ctx.strokeText(s.name, X(s.e) + r + 2 * dpr, Y(s.n) - r)
+      ctx.fillText(s.name, X(s.e) + r + 2 * dpr, Y(s.n) - r)
+    }
+  }
+}
+
+/** Follows the light or dark theme, so bitmaps can re-read the map colours. */
+export function useDarkTheme(): boolean {
+  const [dark, setDark] = useState(() => typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const update = () => setDark(mq.matches)
+    mq.addEventListener('change', update)
+    return () => mq.removeEventListener('change', update)
+  }, [])
+  return dark
 }
 
 function Legend({ layer, data }: { layer: MapLayer; data: LayerData }) {
@@ -143,9 +273,8 @@ function Legend({ layer, data }: { layer: MapLayer; data: LayerData }) {
 export function MapView({ game }: { game: GameState }) {
   const [layer, setLayer] = useState<MapLayer>(() => loadMapPrefs().layer)
   const [view, setView] = useState<View>(FULL)
-  const [size, setSize] = useState({ w: 0, h: 0, base: 1 })
   const [flash, setFlash] = useState<number[]>([])
-  const [dark, setDark] = useState(() => typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+  const dark = useDarkTheme()
   const frameRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const previous = useRef<Uint8Array | null>(null)
@@ -169,13 +298,6 @@ export function MapView({ game }: { game: GameState }) {
     }
   }, [map])
 
-  useEffect(() => {
-    const mq = window.matchMedia('(prefers-color-scheme: dark)')
-    const update = () => setDark(mq.matches)
-    mq.addEventListener('change', update)
-    return () => mq.removeEventListener('change', update)
-  }, [])
-
   // Cells that changed since the last redraw flash for a moment.
   useEffect(() => {
     const before = previous.current
@@ -189,27 +311,7 @@ export function MapView({ game }: { game: GameState }) {
     return () => window.clearTimeout(id)
   }, [map])
 
-  // Size the canvas so each cell is a whole number of device pixels.
-  useEffect(() => {
-    const frame = frameRef.current
-    if (!frame) return
-    const update = () => {
-      const dpr = window.devicePixelRatio || 1
-      const w = frame.clientWidth
-      const maxH = Math.min(480, window.innerHeight * 0.6)
-      let base = Math.max(1, Math.floor((w * dpr) / MAP_COLS))
-      let h = Math.ceil((MAP_ROWS * base) / dpr)
-      if (h > maxH) {
-        base = Math.max(1, Math.floor((maxH * dpr) / MAP_ROWS))
-        h = Math.ceil((MAP_ROWS * base) / dpr)
-      }
-      setSize({ w, h, base })
-    }
-    update()
-    const ro = new ResizeObserver(update)
-    ro.observe(frame)
-    return () => ro.disconnect()
-  }, [])
+  const size = useMapSize(frameRef, 480)
 
   const bitmap = useMemo(() => {
     const frame = frameRef.current
@@ -238,69 +340,7 @@ export function MapView({ game }: { game: GameState }) {
 
   useEffect(() => {
     const canvas = canvasRef.current
-    if (!canvas || !bitmap || W === 0) return
-    canvas.width = W
-    canvas.height = H
-    const ctx = canvas.getContext('2d')!
-    const sea = cssColour(canvas, '--map-sea', KIND_COLOUR.sea)
-    ctx.fillStyle = `rgb(${sea.join(',')})`
-    ctx.fillRect(0, 0, W, H)
-    const ox = Math.round(W / 2 - v.cx * cellPx)
-    const oy = Math.round(H / 2 - v.cy * cellPx)
-    ctx.imageSmoothingEnabled = false
-    ctx.drawImage(bitmap, ox, oy, MAP_COLS * cellPx, MAP_ROWS * cellPx)
-    // Haze covers the whole frame, sea included, so it does not outline the map.
-    if (map.haze > 0) {
-      ctx.fillStyle = `rgba(150, 150, 150, ${(map.haze * 0.25).toFixed(3)})`
-      ctx.fillRect(0, 0, W, H)
-    }
-    const X = (e: number) => ox + ((e - MAP_ORIGIN.e) / MAP_CELL) * cellPx
-    const Y = (n: number) => oy + ((MAP_ORIGIN.n - n) / MAP_CELL) * cellPx
-
-    for (const c of flash) {
-      ctx.strokeStyle = '#ffd400'
-      ctx.lineWidth = Math.max(1, dpr)
-      ctx.strokeRect(ox + (c % MAP_COLS) * cellPx + 0.5, oy + Math.floor(c / MAP_COLS) * cellPx + 0.5, cellPx - 1, cellPx - 1)
-    }
-
-    const lw = Math.min(4 * dpr, Math.max(1.5 * dpr, cellPx * 0.3))
-    ctx.lineCap = 'round'
-    for (const [colour, width] of [['rgba(255,255,255,0.9)', lw + 2 * dpr], ['#3d3d3d', lw]] as const) {
-      ctx.strokeStyle = colour
-      ctx.lineWidth = width
-      ctx.beginPath()
-      for (const s of map.rail.segments) {
-        ctx.moveTo(X(s.from[0]), Y(s.from[1]))
-        ctx.lineTo(X(s.to[0]), Y(s.to[1]))
-      }
-      ctx.stroke()
-    }
-    const r = Math.min(5 * dpr, Math.max(2 * dpr, cellPx * 0.4))
-    ctx.fillStyle = '#3d7a4a'
-    for (const s of lightRailStops(t)) {
-      ctx.beginPath()
-      ctx.arc(X(s.e), Y(s.n), r * 0.45, 0, Math.PI * 2)
-      ctx.fill()
-    }
-    ctx.lineWidth = 1.5 * dpr
-    ctx.strokeStyle = '#3d3d3d'
-    ctx.fillStyle = '#ffffff'
-    for (const s of map.rail.stations) {
-      ctx.beginPath()
-      ctx.arc(X(s.e), Y(s.n), r, 0, Math.PI * 2)
-      ctx.fill()
-      ctx.stroke()
-    }
-    if (cellPx >= 10 * dpr) {
-      ctx.font = `${12 * dpr}px ${getComputedStyle(canvas).fontFamily}`
-      ctx.lineWidth = 3 * dpr
-      ctx.strokeStyle = 'rgba(255,255,255,0.9)'
-      ctx.fillStyle = '#1f2328'
-      for (const s of map.rail.stations) {
-        ctx.strokeText(s.name, X(s.e) + r + 2 * dpr, Y(s.n) - r)
-        ctx.fillText(s.name, X(s.e) + r + 2 * dpr, Y(s.n) - r)
-      }
-    }
+    if (canvas && bitmap && W > 0) drawMap(canvas, { bitmap, map, t, W, H, cellPx, cx: v.cx, cy: v.cy, flash, dpr })
   }, [bitmap, map, flash, W, H, cellPx, v.cx, v.cy, dpr, t])
 
   // Ctrl or Cmd with the wheel zooms; a plain wheel keeps scrolling the page.

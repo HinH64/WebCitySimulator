@@ -7,10 +7,12 @@ import {
   areaCells,
   baseMap,
   cityMapAt,
+  cityMapFrom,
   peoplePerCell,
   projectCells,
   railCoverage,
   railServedShare,
+  realCityMapAt,
   realMapAt,
   realRailAt,
   regionOf,
@@ -189,5 +191,18 @@ describe('map layers', () => {
     const share = (m: { grid: Uint8Array; rail: ReturnType<typeof realRailAt> }) =>
       railServedShare(m.grid, railCoverage(m.rail.stations), peoplePerCell(m.grid, 700))
     expect(share(map)).toBeGreaterThan(share(real))
+  })
+})
+
+describe('the map over the term', () => {
+  it('redraws the end of the term from the last yearly snapshot', () => {
+    const s = playThrough(3, boost('housing', 1.8))
+    const last = s.snapshots.at(-1)!
+    expect(cityMapFrom(last.metrics, last.t, last.t + 1)).toEqual(cityMapAt(s))
+  })
+
+  it('is real Hong Kong every year when following history', () => {
+    const s = playThrough(42, FOLLOW_HISTORY, { events: false })
+    for (const snap of s.snapshots) expect(cityMapFrom(snap.metrics, snap.t, snap.t + 1), String(snap.year)).toEqual(realCityMapAt(snap.t))
   })
 })

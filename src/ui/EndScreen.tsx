@@ -4,6 +4,7 @@ import { computeResult } from '../engine/endings'
 import { INDICATOR_LABEL } from '../engine/indicators'
 import { INDICATOR_IDS, type GameState } from '../engine/types'
 import { formatNumber, percent } from './format'
+import { MapCompare } from './MapCompare'
 import { TrendChart } from './TrendChart'
 
 interface Props {
@@ -42,6 +43,11 @@ export function EndScreen({ game, onReplaySeed, onNewGame }: Props) {
           ))}
         </ul>
         <p className="muted small">以上跟真實的香港比較，指標滿分 100。種子碼 {game.seed}。</p>
+      </section>
+
+      <section>
+        <h2 className="section-title">地圖：你的香港 vs 真實香港</h2>
+        <MapCompare game={game} endT={r.endT} />
       </section>
 
       <section>
