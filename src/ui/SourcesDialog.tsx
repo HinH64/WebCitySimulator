@@ -22,7 +22,7 @@ export function SourcesDialog({ onClose }: { onClose: () => void }) {
     <Dialog title="數據來源與模型" onClose={onClose} wide>
       <h3>數據</h3>
       <p className="warn-box small">
-        標明「官方數字」的系列取自政府統計處、衞生署、差餉物業估價署和房屋委員會的公開數據（{RETRIEVED} 下載）。其餘仍是根據公開報道整理的約數，會逐項換成官方數據。
+        標明「官方數字」的系列取自政府統計處、衞生署、差餉物業估價署、房屋委員會和庫務署的公開數據（{RETRIEVED} 下載）。其餘仍是根據公開報道整理的約數，會逐項換成官方數據。
       </p>
       <ul className="sources">
         {series.map(([id, s]) => (
@@ -56,7 +56,9 @@ export function SourcesDialog({ onClose }: { onClose: () => void }) {
         <li>
           <strong>各部門開支比例、真實政府的撥款水平、各行業比重</strong>
           <div className="small">按財政預算案的開支結構，以及各時期的主要政策估算。</div>
-          <div className="muted small">約數：各政策範疇的開支沒有可直接下載的官方數據</div>
+          <div className="muted small">
+            約數：各政策範疇的開支沒有可直接下載的官方數據；各行業比重的官方數字只有 2000 年起，留待之後補上
+          </div>
         </li>
       </ul>
 
