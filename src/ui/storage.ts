@@ -77,3 +77,26 @@ export function loadSettings(): Settings {
 export function saveSettings(settings: Settings) {
   write(SETTINGS_KEY, settings)
 }
+
+export type MapLayer = 'land' | 'density' | 'price' | 'rail'
+
+export interface MapPrefs {
+  /** Whether the map card is open above the news (wide screens). */
+  open: boolean
+  layer: MapLayer
+}
+
+const MAP_KEY = 'parallel-hk.map.v1'
+const MAP_LAYERS: MapLayer[] = ['land', 'density', 'price', 'rail']
+
+export function loadMapPrefs(): MapPrefs {
+  const p = read<Partial<MapPrefs>>(MAP_KEY, {})
+  return {
+    open: typeof p?.open === 'boolean' ? p.open : true,
+    layer: p && MAP_LAYERS.includes(p.layer as MapLayer) ? (p.layer as MapLayer) : 'land',
+  }
+}
+
+export function saveMapPrefs(prefs: MapPrefs) {
+  write(MAP_KEY, prefs)
+}

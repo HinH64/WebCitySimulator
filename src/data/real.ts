@@ -42,6 +42,11 @@ const SOURCES: Record<string, { label: string; url: string }> = {
     label: '房委會：房屋統計數字 2026',
     url: 'https://www.housingauthority.gov.hk/tc/common/pdf/about-us/publications-and-statistics/HIF2026.pdf',
   },
+  PLAND: { label: '規劃署：2025 年土地用途網格', url: 'https://portal.csdi.gov.hk/geoportal/?datasetId=pland_rcd_1754559265139_25057' },
+  IGEOCOM: {
+    label: '地政總署：GeoCommunity Database',
+    url: 'https://data.gov.hk/tc-data/dataset/hk-landsd-openmap-development-hkms-digital-geocom',
+  },
 }
 
 /** Link to an official source: a C&SD table ID or one of SOURCES. */

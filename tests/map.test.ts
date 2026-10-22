@@ -2,7 +2,23 @@ import { describe, expect, it } from 'vitest'
 import { CANDIDATE_ROUTES, CANDIDATE_SITES, MAP_PROJECTS, RAIL_ROUTES } from '../src/data/mapProjects'
 import { MAP_COLS, MAP_ROWS } from '../src/data/mapBase'
 import { MAP_STATIONS } from '../src/data/mapStations'
-import { KIND_INDEX, areaCells, baseMap, cityMapAt, projectCells, realMapAt, realRailAt } from '../src/engine/map'
+import {
+  KIND_INDEX,
+  areaCells,
+  baseMap,
+  cityMapAt,
+  peoplePerCell,
+  projectCells,
+  railCoverage,
+  railServedShare,
+  realMapAt,
+  realRailAt,
+  regionOf,
+  regionalPrices,
+  stationPosition,
+} from '../src/engine/map'
+import { MAP_CELL, MAP_ORIGIN } from '../src/data/mapBase'
+import { MAP_PRICES } from '../src/data/mapPrices'
 import { FOLLOW_HISTORY, playThrough, setPolicy, type Strategy } from '../src/engine/sim'
 import { LAST_MONTH_INDEX, monthIndex } from '../src/engine/time'
 import { allFunding, boost } from './strategies'
@@ -135,5 +151,43 @@ describe('the city on the map', () => {
     const start = performance.now()
     for (let i = 0; i < 10; i++) cityMapAt(s)
     expect((performance.now() - start) / 10).toBeLessThan(20)
+  })
+})
+
+describe('map layers', () => {
+  const cellOf = (name: string) => {
+    const [e, n] = stationPosition(name)
+    return Math.floor((MAP_ORIGIN.n - n) / MAP_CELL) * MAP_COLS + Math.floor((e - MAP_ORIGIN.e) / MAP_CELL)
+  }
+
+  it('shares the population out over the homes on the map', () => {
+    const grid = realMapAt(LAST_MONTH_INDEX)
+    const people = peoplePerCell(grid, 750)
+    const total = (['public', 'private', 'village'] as const).reduce((a, k) => a + people[k] * kinds(grid, k), 0)
+    expect(total).toBeCloseTo(750, 6)
+    expect(people.public).toBeGreaterThan(people.private)
+    expect(people.private).toBeGreaterThan(people.village)
+  })
+
+  it('places stations in the right price region', () => {
+    expect(regionOf(cellOf('中環'))).toBe('hk')
+    expect(regionOf(cellOf('旺角'))).toBe('kln')
+    expect(regionOf(cellOf('觀塘'))).toBe('kln')
+    expect(regionOf(cellOf('沙田'))).toBe('nt')
+    expect(regionOf(cellOf('荃灣'))).toBe('nt')
+  })
+
+  it('scales the official regional prices by the city', () => {
+    expect(regionalPrices(0, 1)).toEqual(MAP_PRICES[1997])
+    expect(regionalPrices(LAST_MONTH_INDEX, 2).hk).toBe(MAP_PRICES[2025].hk * 2)
+  })
+
+  it('serves more residents by rail when the city builds more lines', () => {
+    const s = playThrough(3, boost('transport', 1.8))
+    const map = cityMapAt(s)
+    const real = { grid: realMapAt(at(s)), rail: realRailAt(at(s)) }
+    const share = (m: { grid: Uint8Array; rail: ReturnType<typeof realRailAt> }) =>
+      railServedShare(m.grid, railCoverage(m.rail.stations), peoplePerCell(m.grid, 700))
+    expect(share(map)).toBeGreaterThan(share(real))
   })
 })

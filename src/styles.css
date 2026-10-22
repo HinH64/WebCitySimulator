@@ -30,6 +30,10 @@
   --age-working: #184f95;
   --age-elderly: #0d366b;
 
+  /* The map keeps its land colours in both themes; only the sea and the faded background change. */
+  --map-sea: #cfe0ee;
+  --map-muted: #e6e8eb;
+
   --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang HK', 'PingFang TC', 'Microsoft JhengHei', 'Noto Sans TC', system-ui, sans-serif;
   --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 
@@ -59,6 +63,8 @@
     --c-environment: #008300;
     --c-finance: #9085e9;
     --c-population: #8b949e;
+    --map-sea: #1f2d38;
+    --map-muted: #2c3138;
     color-scheme: dark;
   }
 }
@@ -85,6 +91,8 @@
   --c-environment: #008300;
   --c-finance: #9085e9;
   --c-population: #8b949e;
+  --map-sea: #1f2d38;
+  --map-muted: #2c3138;
   color-scheme: dark;
 }
 
@@ -526,6 +534,24 @@ input[type='range'] {
   cursor: pointer;
 }
 .option:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--surface)); }
+/* Map */
+.map-card { padding: 0.75rem 0.9rem; }
+.map-head { display: flex; align-items: center; gap: 0.5rem; }
+.map-head .card-title { margin: 0; }
+.map-toggle { margin-left: auto; }
+.map-view { display: grid; gap: 0.5rem; margin-top: 0.5rem; min-width: 0; }
+.side-body .map-view { margin-top: 0; }
+.map-frame { position: relative; overflow: hidden; border-radius: var(--radius-sm); background: var(--map-sea); }
+.map-frame canvas { display: block; touch-action: pan-y; cursor: grab; }
+.map-frame canvas.zoomed { touch-action: none; }
+.map-frame canvas:active { cursor: grabbing; }
+.map-zoom { position: absolute; top: 0.5rem; right: 0.5rem; display: grid; gap: 0.25rem; }
+.map-zoom .button { min-width: 2.1rem; background: var(--surface); }
+.map-zoom .small-text { font-size: 0.75rem; }
+.map-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.25rem 0.85rem; font-size: 0.8rem; color: var(--ink-2); }
+.map-legend .swatch { display: inline-block; width: 0.8rem; height: 0.8rem; border-radius: 2px; margin-right: 0.3rem; vertical-align: -0.1rem; border: 1px solid rgba(0, 0, 0, 0.12); }
+.map-note { margin: 0; font-size: 0.8rem; color: var(--ink-2); }
+
 .news { min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 0.9rem 1.1rem; }
 .news-title { font-size: 1.2rem; margin-bottom: 0.25rem; }
 .news-year { display: grid; gap: 0.25rem; padding: 0.6rem 0; border-top: 1px solid var(--line); }

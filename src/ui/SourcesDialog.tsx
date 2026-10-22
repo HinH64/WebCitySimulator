@@ -54,6 +54,24 @@ export function SourcesDialog({ onClose }: { onClose: () => void }) {
           <div className="muted small">官方數字；2025 年起沿用 2024 年的比例</div>
         </li>
         <li>
+          <strong>地圖：土地用途</strong>
+          <div className="small">
+            規劃署《香港土地用途》，經空間數據共享平台的地圖服務下載，縮成 250 米一格
+            <TableLinks tables={['PLAND']} />
+          </div>
+          <div className="muted small">
+            官方數據（2025 年）；1997 年後的發展（例如赤鱲角機場、啟德、將軍澳、西九龍）按公開資料人手整理，用來倒推之前的樣子，年份和範圍是約數
+          </div>
+        </li>
+        <li>
+          <strong>地圖：鐵路站、樓價、人口密度</strong>
+          <div className="small">
+            地政總署（鐵路站和輕鐵站坐標）、差餉物業估價署（私人住宅分區平均售價，100 平方米以下）
+            <TableLinks tables={['IGEOCOM', 'RVD']} />
+          </div>
+          <div className="muted small">官方數據；路線和通車日期按港鐵公布人手整理；人口密度按各類住宅每格的單位數估算</div>
+        </li>
+        <li>
           <strong>各部門開支比例、真實政府的撥款水平、各行業比重</strong>
           <div className="small">按財政預算案的開支結構，以及各時期的主要政策估算。</div>
           <div className="muted small">

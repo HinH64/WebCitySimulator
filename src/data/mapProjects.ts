@@ -316,3 +316,22 @@ export const CANDIDATE_ROUTES: CandidateRoute[] = [
   { id: 'northIsland', name: '北港島綫', stations: ['香港', '會展', '炮台山'], earliest: [2012, 1], source: '《鐵路發展策略 2014》' },
   { id: 'kauYiChauLink', name: '交椅洲鐵路', stations: ['欣澳', { name: '交椅洲', e: 826600, n: 815000 }, '香港大學'], earliest: [2018, 1], source: '「明日大嶼願景」（2018 年施政報告）' },
 ]
+
+// ---- Regions for flat prices ----
+
+/** The Rating and Valuation Department's regions, roughly; the rest of the map is the New Territories. */
+export const PRICE_REGIONS: { id: 'hk' | 'kln'; name: string; polygon: [number, number][] }[] = [
+  {
+    id: 'hk',
+    name: '港島',
+    polygon: [[829300, 817300], [845000, 817300], [845000, 811000], [838000, 808500], [832000, 808500], [829300, 811000]],
+  },
+  {
+    id: 'kln',
+    name: '九龍',
+    polygon: [
+      [831700, 821300], [832600, 823200], [835000, 823900], [838500, 823800], [841500, 823300], [843600, 821500],
+      [843300, 818000], [842500, 817300], [835500, 817300], [834000, 817400], [832800, 818800], [831700, 820500],
+    ],
+  },
+]

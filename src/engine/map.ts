@@ -4,10 +4,12 @@
  */
 
 import { MAP_BASE_2025, MAP_CELL, MAP_COLS, MAP_ORIGIN, MAP_ROWS, MAP_TILE_KINDS } from '../data/mapBase'
+import { MAP_PRICES } from '../data/mapPrices'
 import {
   CANDIDATE_ROUTES,
   CANDIDATE_SITES,
   MAP_PROJECTS,
+  PRICE_REGIONS,
   RAIL_ROUTES,
   type CandidateSite,
   type MapArea,
@@ -18,7 +20,7 @@ import { MAP_STATIONS } from '../data/mapStations'
 import { yearValue } from '../data/real'
 import { clamp, computeMetrics, realMetrics } from './metrics'
 import { realSectors } from './real'
-import { LAST_MONTH_INDEX, monthIndex } from './time'
+import { LAST_MONTH_INDEX, monthIndex, yearOf } from './time'
 import type { GameState } from './types'
 
 export const KIND_INDEX = Object.fromEntries(MAP_TILE_KINDS.map((k, i) => [k, i])) as Record<TileKind, number>
@@ -360,4 +362,89 @@ export function cityMapAt(s: GameState): CityMap {
   fill(sitePool(t, (site) => site.use === 'housing' && !site.countryPark, taken))
 
   return { grid, rail: cityRail(s.dev.rail, t), haze: clamp((m.pm10 - 20) / 50, 0, 1) }
+}
+
+// ---- Layers ----
+
+export type Region = 'hk' | 'kln' | 'nt'
+
+let regions: Region[] | undefined
+
+/** The price region a cell is in. */
+export function regionOf(cell: number): Region {
+  if (!regions) {
+    regions = Array.from({ length: MAP_COLS * MAP_ROWS }, (_, i) => {
+      const [e, n] = cellCentre(i)
+      return PRICE_REGIONS.find((r) => inside(e, n, r.polygon))?.id ?? 'nt'
+    })
+  }
+  return regions[cell]
+}
+
+/** Average flat price by region at month t (HK$ per m²), scaled by the city's prices against history. */
+export function regionalPrices(t: number, ratio: number): Record<Region, number> {
+  const years = Object.keys(MAP_PRICES).map(Number)
+  const year = clamp(yearOf(t), Math.min(...years), Math.max(...years))
+  const p = MAP_PRICES[year]
+  return { hk: p.hk * ratio, kln: p.kln * ratio, nt: p.nt * ratio }
+}
+
+export type HomeKind = 'public' | 'private' | 'village'
+
+/**
+ * People living in one cell of each kind of home (萬). The city's population is shared out by how many
+ * homes a cell holds: public and private from 2025's stock per cell, villages from the households left
+ * over in 2025 (at least a tenth of a private cell).
+ */
+export function peoplePerCell(grid: Uint8Array, population: number): Record<HomeKind, number> {
+  const base = baseMap()
+  const count = (g: Uint8Array, k: HomeKind) => g.reduce((a, v) => a + (v === KIND_INDEX[k] ? 1 : 0), 0)
+  const households = yearValue('population', 2025) / yearValue('householdSize', 2025)
+  const village = Math.max(
+    unitsPerCell('private') / 10,
+    (households - yearValue('publicUnits', 2025) - yearValue('privateUnits', 2025)) / count(base, 'village'),
+  )
+  const homes: Record<HomeKind, number> = { public: unitsPerCell('public'), private: unitsPerCell('private'), village }
+  const total = (['public', 'private', 'village'] as const).reduce((a, k) => a + homes[k] * count(grid, k), 0)
+  return { public: (population * homes.public) / total, private: (population * homes.private) / total, village: (population * homes.village) / total }
+}
+
+/** Walking distance to a station that counts as served by rail. */
+export const RAIL_WALK = 500
+
+/** 1 for cells whose centre is within RAIL_WALK of one of the stations. */
+export function railCoverage(stations: MapStationPoint[]): Uint8Array {
+  const out = new Uint8Array(MAP_COLS * MAP_ROWS)
+  const reach = Math.ceil(RAIL_WALK / MAP_CELL)
+  for (const s of stations) {
+    const col = Math.floor((s.e - MAP_ORIGIN.e) / MAP_CELL)
+    const row = Math.floor((MAP_ORIGIN.n - s.n) / MAP_CELL)
+    for (let r = row - reach; r <= row + reach; r++) {
+      for (let c = col - reach; c <= col + reach; c++) {
+        if (r < 0 || c < 0 || r >= MAP_ROWS || c >= MAP_COLS) continue
+        const [e, n] = cellCentre(r * MAP_COLS + c)
+        if (Math.hypot(e - s.e, n - s.n) <= RAIL_WALK) out[r * MAP_COLS + c] = 1
+      }
+    }
+  }
+  return out
+}
+
+/** Share of residents living within RAIL_WALK of a station. */
+export function railServedShare(grid: Uint8Array, coverage: Uint8Array, people: Record<HomeKind, number>): number {
+  let served = 0
+  let all = 0
+  for (let i = 0; i < grid.length; i++) {
+    const k = MAP_TILE_KINDS[grid[i]]
+    if (k !== 'public' && k !== 'private' && k !== 'village') continue
+    all += people[k]
+    if (coverage[i]) served += people[k]
+  }
+  return all ? served / all : 0
+}
+
+/** Light rail stops in use at month t; the Tin Shui Wai North stops opened in December 2003. */
+export function lightRailStops(t: number): MapStationPoint[] {
+  const northOpen = t >= monthIndex(2003, 12)
+  return MAP_STATIONS.filter((s) => s.light && (northOpen || s.n < 835300)).map((s) => ({ name: s.zh, e: s.e, n: s.n }))
 }

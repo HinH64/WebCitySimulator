@@ -6,6 +6,7 @@ import { START_YEAR, monthOf, yearOf } from '../engine/time'
 import type { GameState, Signal } from '../engine/types'
 import { Inbox } from './Inbox'
 import { Concerns, IndicatorStrip } from './Indicators'
+import { MapCard, MapView } from './MapView'
 import { NewsFeed } from './NewsFeed'
 import { BudgetPanel } from './panels/BudgetPanel'
 import { DebtPanel } from './panels/DebtPanel'
@@ -23,7 +24,7 @@ const SPEED_LABEL: Record<Speed, string> = { slow: '慢', normal: '中', fast: '
 const NEXT_SPEED: Record<Speed, Speed> = { slow: 'normal', normal: 'fast', fast: 'slow' }
 const FRAME_MS = 100
 
-type PanelId = 'budget' | 'tax' | 'debt' | 'policy' | 'demand' | 'population'
+type PanelId = 'map' | 'budget' | 'tax' | 'debt' | 'policy' | 'demand' | 'population'
 const PANELS: { id: PanelId; label: string }[] = [
   { id: 'budget', label: '預算' },
   { id: 'demand', label: '需求' },
@@ -32,6 +33,8 @@ const PANELS: { id: PanelId; label: string }[] = [
   { id: 'policy', label: '政策' },
   { id: 'debt', label: '債務' },
 ]
+/** On narrow screens the map is a panel too; on wide screens it sits above the news. */
+const NARROW_PANELS: { id: PanelId; label: string }[] = [{ id: 'map', label: '地圖' }, ...PANELS]
 
 const CHOICE_PAUSE = '有新抉擇待決定，已自動暫停。'
 
@@ -175,6 +178,8 @@ export function GameScreen({ game, initialSpeed, settings, onSettings, onEnd, on
     saveSpeed(next)
   }
 
+  const panels = narrow ? NARROW_PANELS : PANELS
+  const shown: PanelId = !narrow && panel === 'map' ? 'budget' : panel
   const t = game.status === 'ended' ? game.t - 1 : game.t
   const month = monthOf(t)
   const debt = debtTotal(game)
@@ -183,12 +188,12 @@ export function GameScreen({ game, initialSpeed, settings, onSettings, onEnd, on
 
   const tabs = (className: string) => (
     <nav className={className} role="tablist" aria-label="面板">
-      {PANELS.map((p) => (
+      {panels.map((p) => (
         <button
           key={p.id}
           role="tab"
-          aria-selected={panelOpen && panel === p.id}
-          className={panelOpen && panel === p.id ? 'active' : ''}
+          aria-selected={panelOpen && shown === p.id}
+          className={panelOpen && shown === p.id ? 'active' : ''}
           onClick={() => openPanel(p.id)}
         >
           {p.label}
@@ -258,6 +263,7 @@ export function GameScreen({ game, initialSpeed, settings, onSettings, onEnd, on
 
       <main className={`layout ${!narrow && !sideOpen ? 'side-closed' : ''}`}>
         <div className="news-col">
+          {!narrow && <MapCard game={game} />}
           <Concerns concerns={view.concerns} onSelect={(row) => openPanel('demand', row)} />
           <Inbox items={game.inbox} now={game.t} onAnswer={onAnswer} />
           <NewsFeed news={game.news} count={game.news.length} />
@@ -276,19 +282,20 @@ export function GameScreen({ game, initialSpeed, settings, onSettings, onEnd, on
             aria-label="面板"
           >
             <div className="side-head">
-              <h2 className="sheet-title">{PANELS.find((p) => p.id === panel)?.label}</h2>
+              <h2 className="sheet-title">{panels.find((p) => p.id === shown)?.label}</h2>
               {tabs('tabs')}
               <button className="icon-button side-close" onClick={closePanel} aria-label={narrow ? '關閉面板' : '收起面板'}>
                 {narrow ? '×' : '»'}
               </button>
             </div>
             <div className="side-body">
-              {panel === 'budget' && <BudgetPanel game={game} metrics={m} onChange={bump} />}
-              {panel === 'demand' && <DemandPanel rows={view.rows} focus={focusRow} />}
-              {panel === 'population' && <PopulationPanel game={game} metrics={m} />}
-              {panel === 'tax' && <TaxPanel game={game} onChange={bump} />}
-              {panel === 'policy' && <PolicyPanel game={game} onChange={bump} />}
-              {panel === 'debt' && <DebtPanel game={game} metrics={m} onChange={bump} />}
+              {shown === 'map' && <MapView game={game} />}
+              {shown === 'budget' && <BudgetPanel game={game} metrics={m} onChange={bump} />}
+              {shown === 'demand' && <DemandPanel rows={view.rows} focus={focusRow} />}
+              {shown === 'population' && <PopulationPanel game={game} metrics={m} />}
+              {shown === 'tax' && <TaxPanel game={game} onChange={bump} />}
+              {shown === 'policy' && <PolicyPanel game={game} onChange={bump} />}
+              {shown === 'debt' && <DebtPanel game={game} metrics={m} onChange={bump} />}
             </div>
           </aside>
         )}
