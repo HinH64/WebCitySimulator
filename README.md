@@ -27,6 +27,7 @@ npm run dev        # 本機開發
 npm test           # 單元測試、歷史回測、平衡測試
 npm run build      # 型別檢查並建置到 dist/
 npm run images     # 用 Chrome 重新產生分享預覽圖和主畫面圖示（scripts/images → public/）
+npm run data:map   # 重新下載規劃署土地用途，產生地圖底圖 src/data/mapBase.ts
 ```
 
 結構：

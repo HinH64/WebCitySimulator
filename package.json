@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "data:official": "node scripts/fetch-official.mjs",
+    "data:map": "node scripts/fetch-map.mjs",
     "images": "node scripts/make-images.mjs"
   },
   "dependencies": {
