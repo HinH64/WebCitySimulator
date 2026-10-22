@@ -1,12 +1,16 @@
-// Downloads the Planning Department's 2025 land use grid and writes src/data/mapBase.ts.
+// Downloads the map data:
+// - src/data/mapStations.ts: railway stations and light rail stops from the Lands Department's iGeoCom.
+// - src/data/mapBase.ts: the Planning Department's 2025 land use grid. The CSDI download link is blocked,
+//   but the dataset's WMS works. GetMap draws each land use code as a grey, and GetFeatureInfo returns the
+//   code at a point, so the script reads the greys for the whole territory at 25 m and checks which code
+//   each grey stands for. Each 250 m cell then takes its most common land use.
 //
-// The CSDI download link is blocked, but the dataset's WMS works. GetMap draws each land use code as a grey,
-// and GetFeatureInfo returns the code at a point, so the script reads the greys for the whole territory at
-// 25 m and looks up which code each grey stands for. Each 250 m cell then takes its most common land use.
-//
-// Run: npm run data:map            (add --preview <file.png> to also draw the grid)
+// Run: npm run data:map            (--stations-only skips the land use; --preview <file.png> draws the grid)
+import { X509Certificate } from 'node:crypto'
 import { writeFileSync } from 'node:fs'
-import { deflateSync, inflateSync } from 'node:zlib'
+import { get as httpsGet } from 'node:https'
+import { rootCertificates } from 'node:tls'
+import { deflateSync, inflateRawSync, inflateSync } from 'node:zlib'
 
 const DATASET = 'pland_rcd_1754559265139_25057'
 const WMS = `https://portal.csdi.gov.hk/server/services/common/${DATASET}/MapServer/WMSServer`
@@ -112,6 +116,117 @@ function decodePng(buf) {
     grey[i] = px[i * bpp]
   }
   return { w, h, grey }
+}
+
+// ---- Railway stations (iGeoCom) ----
+
+// open.hkmapservice.gov.hk sends its root certificate but not the intermediate, so certificate checks fail.
+// Fetch the intermediate from the address in the site's certificate, confirm it is signed by Hongkong Post
+// Root CA 3 from Node's own root store, and add it to the chain. Verification stays on.
+async function hkPostCa() {
+  const inter = new X509Certificate(await get('http://www1.eCert.gov.hk/root/ecert_ssl_ca_3-17.crt'))
+  const root = rootCertificates.map((p) => new X509Certificate(p)).find((c) => c.subject.includes('CN=Hongkong Post Root CA 3'))
+  if (!root || !inter.verify(root.publicKey)) throw new Error('could not verify the Hongkong Post intermediate certificate')
+  return [...rootCertificates, inter.toString()]
+}
+
+function httpsBuffer(url, ca) {
+  return new Promise((resolve, reject) =>
+    httpsGet(url, { ca }, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        res.resume()
+        resolve(httpsBuffer(new URL(res.headers.location, url).href, ca))
+        return
+      }
+      if (res.statusCode !== 200) reject(new Error(`${res.statusCode} for ${url}`))
+      const chunks = []
+      res.on('data', (c) => chunks.push(c))
+      res.on('end', () => resolve(Buffer.concat(chunks)))
+    }).on('error', reject),
+  )
+}
+
+/** The one file in a zip archive, found through the central directory. */
+function unzipSingle(zip) {
+  const eocd = zip.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]))
+  const cd = zip.readUInt32LE(eocd + 16)
+  if (zip.readUInt32LE(cd) !== 0x02014b50) throw new Error('bad zip central directory')
+  const method = zip.readUInt16LE(cd + 10)
+  const size = zip.readUInt32LE(cd + 20)
+  const local = zip.readUInt32LE(cd + 42)
+  const start = local + 30 + zip.readUInt16LE(local + 26) + zip.readUInt16LE(local + 28)
+  const data = zip.subarray(start, start + size)
+  if (method === 0) return data
+  if (method === 8) return inflateRawSync(data)
+  throw new Error(`zip method ${method}`)
+}
+
+function parseCsv(text) {
+  const rows = []
+  for (const line of text.replace(/^﻿/, '').split(/\r?\n/)) {
+    if (!line) continue
+    const cells = []
+    let cur = ''
+    let quoted = false
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i]
+      if (quoted) {
+        if (ch === '"' && line[i + 1] === '"') {
+          cur += '"'
+          i++
+        } else if (ch === '"') quoted = false
+        else cur += ch
+      } else if (ch === '"') quoted = true
+      else if (ch === ',') {
+        cells.push(cur)
+        cur = ''
+      } else cur += ch
+    }
+    cells.push(cur)
+    rows.push(cells)
+  }
+  const [head, ...body] = rows
+  return body.map((r) => Object.fromEntries(head.map((k, i) => [k, r[i]])))
+}
+
+{
+  const IGEOCOM = 'https://open.hkmapservice.gov.hk/OpenData/directDownload?productName=iGeoCom&sheetName=iGeoCom&productFormat=CSV'
+  const pois = parseCsv(unzipSingle(await httpsBuffer(IGEOCOM, await hkPostCa())).toString('utf8'))
+  // RSN: railway station, HSN: the high speed rail terminus, LRA: light rail stop.
+  const stations = pois
+    .filter((p) => p.CLASS === 'TRS' && ['RSN', 'HSN', 'LRA'].includes(p.TYPE))
+    .map((p) => ({
+      zh: p.CHINESENAME.replace(/^香港鐵路|^香港|^輕鐵－/, '').replace(/站$/, ''),
+      en: p.ENGLISHNAME.replace(/^Mass Transit Railway |^Hong Kong |^LR-/, '').replace(/ Station$/, ''),
+      e: Number(p.EASTING),
+      n: Number(p.NORTHING),
+      ...(p.TYPE === 'LRA' ? { light: true } : {}),
+    }))
+    .sort((a, b) => Number(Boolean(a.light)) - Number(Boolean(b.light)) || a.e - b.e)
+  const heavy = stations.filter((s) => !s.light).length
+  if (heavy < 95 || stations.length - heavy < 60) throw new Error(`unexpected station count: ${heavy} rail, ${stations.length - heavy} light rail`)
+  writeFileSync(
+    'src/data/mapStations.ts',
+    `// Generated by scripts/fetch-map.mjs on ${new Date().toISOString().slice(0, 10)}. Do not edit; run \`npm run data:map\`.
+// Lands Department, GeoCommunity Database (iGeoCom): https://data.gov.hk/en-data/dataset/hk-landsd-openmap-development-hkms-digital-geocom
+
+export interface MapStation {
+  zh: string
+  en: string
+  /** Hong Kong 1980 Grid, metres. */
+  e: number
+  n: number
+  light?: boolean
+}
+
+/** Railway stations (${heavy}) and light rail stops (${stations.length - heavy}) as they stand today. */
+export const MAP_STATIONS: MapStation[] = [
+${stations.map((s) => `  ${JSON.stringify(s)},`).join('\n')}
+]
+`,
+  )
+  console.log(`src/data/mapStations.ts: ${heavy} stations, ${stations.length - heavy} light rail stops`)
+  if (process.argv.includes('--stations-only')) process.exit(0)
 }
 
 // ---- Greys for the whole territory, 25 m apart ----
