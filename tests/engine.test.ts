@@ -3,13 +3,14 @@ import { DEPARTMENTS, REVENUE_SHARE_ANCHORS, SPEND_SHARE_ANCHORS, TAXES } from '
 import { CITY_EVENTS } from '../src/data/cityEvents'
 import { HISTORY_CHOICES, HISTORY_EVENTS, PARALLEL_EVENTS } from '../src/data/events'
 import { POLICIES, POLICY_BY_ID } from '../src/data/policies'
+import { RELEASES } from '../src/data/official'
 import { FIRST_YEAR, LAST_YEAR, REAL, realRevenue, yearValue } from '../src/data/real'
 import { computeResult } from '../src/engine/endings'
 import { computeIndicators } from '../src/engine/indicators'
 import { computeMetrics, realMetrics } from '../src/engine/metrics'
 import { answer, debtTotal, newGame, playThrough, playerPolicyLevel, setPolicy, step, type Strategy } from '../src/engine/sim'
 import { realPolicyLevel, realTax } from '../src/engine/real'
-import { monthIndex } from '../src/engine/time'
+import { monthIndex, yearOf } from '../src/engine/time'
 import { INDICATOR_IDS } from '../src/engine/types'
 import { FOLLOW_HISTORY, UNTOUCHED, allFunding, boost, randomStrategy } from './strategies'
 
@@ -127,6 +128,22 @@ describe('following history', () => {
     expect(s.bonds).toEqual([])
   })
 
+  it('publishes the real headline figures', () => {
+    const stats = s.news.filter((n) => n.kind === 'stats').map((n) => n.text)
+    const one = (v: number) => new Intl.NumberFormat('zh-HK', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(v)
+    RELEASES.gdpGrowthYearly.forEach((g, i) => {
+      const year = FIRST_YEAR + i
+      if (year >= LAST_YEAR) return
+      const line = `${year} 年經濟實質${g >= 0 ? '增長' : '收縮'} ${one(Math.abs(g))}%`
+      expect(stats.some((t) => t.startsWith(line)), line).toBe(true)
+    })
+    for (let year = FIRST_YEAR + 1; year <= LAST_YEAR; year++) {
+      const line = `年中人口 ${one(yearValue('population', year))} 萬`
+      expect(stats.some((t) => t.startsWith(line)), `${year} ${line}`).toBe(true)
+    }
+    expect(stats.filter((t) => t.includes('出現通縮')).length).toBeGreaterThanOrEqual(2)
+  })
+
   it('scores the same as real Hong Kong', () => {
     const r = computeResult(s)
     expect(r.title).toBe('歷史重演')
@@ -162,6 +179,17 @@ describe('simulation', () => {
       step(g)
       const after = g.reserves - debtTotal(g)
       expect(after - before).toBeCloseTo(g.last.revenueTotal - g.last.spendingTotal, 6)
+    }
+  })
+
+  it('keeps statistics news to a few items a year, whatever the player does', () => {
+    for (const strategy of [UNTOUCHED, allFunding(0.6), allFunding(1.6), randomStrategy(3)]) {
+      const g = playThrough(3, strategy)
+      const perYear = new Map<number, number>()
+      for (const n of g.news.filter((n) => n.kind === 'stats')) perYear.set(yearOf(n.t), (perYear.get(yearOf(n.t)) ?? 0) + 1)
+      expect(Math.max(...perYear.values())).toBeLessThanOrEqual(12)
+      // Every year has some, up to the last (possibly early) year of the term.
+      expect(perYear.size).toBeGreaterThanOrEqual(yearOf(g.t - 1) - FIRST_YEAR)
     }
   })
 

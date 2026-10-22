@@ -2,6 +2,20 @@ import { RETRIEVED } from '../data/official'
 import { REAL, tableLink, type Series } from '../data/real'
 import { Dialog } from './Dialog'
 
+function TableLinks({ tables }: { tables: string[] }) {
+  return tables.map((t) => {
+    const link = tableLink(t)
+    return (
+      <span key={t}>
+        {' · '}
+        <a className="link" href={link.url} target="_blank" rel="noreferrer">
+          {link.label}
+        </a>
+      </span>
+    )
+  })
+}
+
 export function SourcesDialog({ onClose }: { onClose: () => void }) {
   const series: [string, Series][] = Object.entries(REAL)
   return (
@@ -18,21 +32,19 @@ export function SourcesDialog({ onClose }: { onClose: () => void }) {
             </strong>
             <div className="small">
               {s.source}
-              {s.tables?.map((t) => {
-                const link = tableLink(t)
-                return (
-                  <span key={t}>
-                    {' · '}
-                    <a className="link" href={link.url} target="_blank" rel="noreferrer">
-                      {link.label}
-                    </a>
-                  </span>
-                )
-              })}
+              {s.tables && <TableLinks tables={s.tables} />}
             </div>
             <div className="muted small">{s.note}</div>
           </li>
         ))}
+        <li>
+          <strong>統計數字新聞：本地生產總值實質增長（每季、每年）、綜合消費物價指數按年變動（每月）</strong>
+          <div className="small">
+            政府統計處
+            <TableLinks tables={['310-31001', '510-60001']} />
+          </div>
+          <div className="muted small">官方數字，加上你的城市跟真實歷史的差距</div>
+        </li>
         <li>
           <strong>各部門開支比例、真實政府的撥款水平、收入來源比例、各行業比重</strong>
           <div className="small">按財政預算案的開支和收入結構，以及各時期的主要政策估算。</div>

@@ -8,6 +8,7 @@ const KIND_TAG: Partial<Record<NewsItem['kind'], string>> = {
   inbox: '新抉擇',
   decision: '決定',
   parallel: '城市動態',
+  stats: '統計數字',
   milestone: '里程碑',
   report: '年度報告',
 }

@@ -247,6 +247,31 @@ const OFFICIAL = {
   }),
 }
 
+// ---- Higher-frequency figures for statistics releases (C&SD 310-31001, 510-60001) ----
+
+/** A year-on-year % series from FIRST_YEAR's first period, up to the latest published one. */
+function periodic(map, periods) {
+  const out = []
+  for (const p of periods) {
+    const v = num(map.get(p))
+    if (v === undefined) break
+    out.push(v)
+  }
+  return out
+}
+
+const quarters = YEARS.flatMap((y) => ['03', '06', '09', '12'].map((m) => `${y}${m}`))
+const months = YEARS.flatMap((y) => Array.from({ length: 12 }, (_, i) => `${y}${String(i + 1).padStart(2, '0')}`))
+const realGrowthQ = byPeriod(gdp, { sv: 'CON', freq: 'Q', svDesc: 'Year-on-year % change' })
+const realGrowthY = byPeriod(gdp, { sv: 'CON', freq: 'Y', svDesc: 'Year-on-year % change' })
+const inflationM = byPeriod(cpiRows, { sv: 'CC_CM_1920', freq: 'M', svDesc: 'Year-on-year % change' })
+
+const RELEASES = {
+  gdpGrowthQuarterly: periodic(realGrowthQ, quarters),
+  gdpGrowthYearly: periodic(realGrowthY, YEARS.map(String)),
+  inflationMonthly: periodic(inflationM, months),
+}
+
 const retrieved = new Date().toISOString().slice(0, 10)
 const body = Object.entries(OFFICIAL)
   .map(([id, s]) => `  ${id}: ${JSON.stringify(s)},`)
@@ -273,6 +298,16 @@ export const RETRIEVED = '${retrieved}'
 export const OFFICIAL = {
 ${body}
 } satisfies Record<string, OfficialSeries>
+
+/** Year-on-year % changes for statistics releases, up to the latest published period (C&SD 310-31001, 510-60001). */
+export const RELEASES = {
+  /** Real GDP growth, quarterly from ${FIRST_YEAR} Q1. */
+  gdpGrowthQuarterly: ${JSON.stringify(RELEASES.gdpGrowthQuarterly)},
+  /** Real GDP growth, yearly from ${FIRST_YEAR}. */
+  gdpGrowthYearly: ${JSON.stringify(RELEASES.gdpGrowthYearly)},
+  /** Composite CPI inflation, monthly from January ${FIRST_YEAR}. */
+  inflationMonthly: ${JSON.stringify(RELEASES.inflationMonthly)},
+}
 `,
 )
 

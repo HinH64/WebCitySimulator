@@ -538,6 +538,7 @@ input[type='range'] {
 .news-item.kind-inbox .news-body { font-weight: 600; }
 .news-item.kind-parallel .news-body { border-left: 3px solid var(--line); padding-left: 0.5rem; }
 .news-item.kind-city .news-body,
+.news-item.kind-stats .news-body,
 .news-item.kind-report .news-body { color: var(--ink-2); }
 .news-item.kind-report .news-body { font-size: 0.9rem; }
 .news-item.kind-system .news-body { font-weight: 700; }

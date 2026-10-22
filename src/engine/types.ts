@@ -167,7 +167,7 @@ export interface ChoiceRecord {
   expired: boolean
 }
 
-export type NewsKind = 'history' | 'inbox' | 'decision' | 'parallel' | 'city' | 'milestone' | 'report' | 'system'
+export type NewsKind = 'history' | 'inbox' | 'decision' | 'parallel' | 'city' | 'stats' | 'milestone' | 'report' | 'system'
 
 export interface NewsItem {
   t: number
@@ -258,6 +258,10 @@ export interface GameState {
   migrationLog: number[]
   /** Highest step reached by each milestone series. */
   milestones: Record<string, number>
+  /** The city's figures at the end of every month so far (index = month), for statistics releases. */
+  statsLog: StatsPoint[]
+  /** What each statistics release last reported, and when. */
+  releases: Record<string, { t: number; v: number; n?: number }>
   news: NewsItem[]
   signals: Signal[]
 
@@ -266,6 +270,20 @@ export interface GameState {
   year: YearAccumulator
   snapshots: YearSnapshot[]
   fundingByYear: Record<number, Record<DeptId, number>>
+}
+
+/** The city against real history at the end of one month, for statistics releases. */
+export interface StatsPoint {
+  /** GDP ÷ real GDP. */
+  gdpRatio: number
+  /** GDP per head ÷ the real one. */
+  perCapitaRatio: number
+  /** Population minus the real one, 萬. */
+  popGap: number
+  /** Share of people aged 65 or over minus the real share, percentage points. */
+  elderlyGap: number
+  unemployment: number
+  priceIndex: number
 }
 
 export interface MonthFlows {

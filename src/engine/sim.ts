@@ -24,6 +24,7 @@ import {
   stepSectors,
   updateFelt,
 } from './real'
+import { publishReleases } from './releases'
 import { nextRandom } from './rng'
 import { LAST_MONTH_INDEX, START_YEAR, isBefore, monthOf, yearOf } from './time'
 import type {
@@ -160,6 +161,8 @@ export function newGame(seed: number, options: Partial<GameOptions> = {}): GameS
     cooldowns: {},
     migrationLog: [],
     milestones: {},
+    statsLog: [],
+    releases: {},
     news: [],
     signals: [],
     last: emptyFlows(),
@@ -647,6 +650,7 @@ export function step(s: GameState) {
   for (const item of s.inbox.filter((i) => i.deadline <= t)) answer(s, item.uid, item.defaultOptionId, true)
 
   checkMilestones(s, m)
+  publishReleases(s, m)
   if (s.options.events) {
     const ctx: CityContext = {
       t,
