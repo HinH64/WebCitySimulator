@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "data:official": "node scripts/fetch-official.mjs"
+    "data:official": "node scripts/fetch-official.mjs",
+    "images": "node scripts/make-images.mjs"
   },
   "dependencies": {
     "react": "^19.3.1",

@@ -26,6 +26,7 @@ npm install
 npm run dev        # 本機開發
 npm test           # 單元測試、歷史回測、平衡測試
 npm run build      # 型別檢查並建置到 dist/
+npm run images     # 用 Chrome 重新產生分享預覽圖和主畫面圖示（scripts/images → public/）
 ```
 
 結構：
@@ -66,11 +67,13 @@ npm run data:official   # 重新下載，產生 src/data/official.ts
 
 ## 部署
 
-網站部署在 Vercel，透過 Vercel 的 Git 整合自動部署：
+網站部署在 Vercel（正式網址 <https://web-city-simulator.vercel.app/>），透過 Vercel 的 Git 整合自動部署：
 
 - 推送到 `main`：更新正式網址。
 - 推送到其他分支或開 PR：產生獨立的預覽網址。
 
 在 Vercel 匯入這個 repo 時會自動偵測到 Vite（Build Command `npm run build`，Output Directory `dist`），不用另外設定。
+
+`index.html` 的分享預覽（`og:url`、`og:image`）和 canonical 連結寫死了正式網址；如果改用自訂網域，要一併更新。
 
 GitHub Actions（`.github/workflows/ci.yml`）只負責在每次推送和 PR 時跑測試和建置，不負責部署。
