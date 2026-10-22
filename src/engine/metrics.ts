@@ -71,7 +71,8 @@ export function computeMetrics(s: MetricInput, t: number): Metrics {
     privateUnits,
     prhWait,
     priceIndex,
-    affordability: priceIndex / (gdpPerCapita / 210),
+    // Rates are charged on rent, so each point above the real rate adds about 1% to the cost of housing.
+    affordability: (priceIndex / (gdpPerCapita / 210)) * (1 + (s.taxes.rates - realTaxes(t).rates) / 100),
     unemployment,
     gdp,
     gdpPerCapita,

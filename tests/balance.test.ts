@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { computeResult, type Rating } from '../src/engine/endings'
+import { computeResult } from '../src/engine/endings'
 import { debtTotal, playThrough, setFunding, type Strategy } from '../src/engine/sim'
 import { monthOf } from '../src/engine/time'
 import { realFunding } from '../src/engine/real'
@@ -7,17 +7,16 @@ import { FOLLOW_HISTORY, THOUGHTFUL, UNTOUCHED, allFunding, boost, randomStrateg
 
 const RUNS = 10
 
+/** Internal scores over RUNS seeds; players never see them, the end screen compares with real Hong Kong. */
 function summarise(make: (seed: number) => Strategy) {
-  const ratings: Record<Rating, number> = { S: 0, A: 0, B: 0, C: 0, D: 0 }
+  const scores: number[] = []
   let early = 0
-  let total = 0
   for (let seed = 1; seed <= RUNS; seed++) {
     const r = computeResult(playThrough(seed, make(seed)))
-    ratings[r.rating]++
-    total += r.score
+    scores.push(r.score)
     if (r.endedEarly) early++
   }
-  return { ratings, early, mean: total / RUNS }
+  return { early, mean: scores.reduce((a, b) => a + b, 0) / RUNS, min: Math.min(...scores), max: Math.max(...scores) }
 }
 
 /** A careful player who also invests in the economy and housing, in years the treasury can afford it. */
@@ -33,22 +32,14 @@ const SKILLED: Strategy = {
 }
 
 describe('balance', () => {
-  it('rates real history as B', () => {
-    expect(summarise(() => FOLLOW_HISTORY).ratings.B).toBe(RUNS)
-  })
-
-  it('rates a government that never acts below history', () => {
-    const sum = summarise(() => UNTOUCHED)
-    expect(sum.mean).toBeLessThan(summarise(() => FOLLOW_HISTORY).mean - 2)
-    expect(sum.ratings.S + sum.ratings.A).toBe(0)
+  it('scores a government that never acts below history', () => {
+    expect(summarise(() => UNTOUCHED).mean).toBeLessThan(summarise(() => FOLLOW_HISTORY).mean - 2)
   })
 
   it('rewards reading the demand panel', () => {
-    const thoughtful = summarise(() => THOUGHTFUL)
-    expect(thoughtful.mean).toBeGreaterThan(summarise(() => FOLLOW_HISTORY).mean)
-    expect(thoughtful.ratings.C + thoughtful.ratings.D).toBe(0)
-    const skilled = summarise(() => SKILLED)
-    expect(skilled.ratings.A + skilled.ratings.S).toBeGreaterThanOrEqual(RUNS * 0.8)
+    const history = summarise(() => FOLLOW_HISTORY).mean
+    expect(summarise(() => THOUGHTFUL).min).toBeGreaterThan(history)
+    expect(summarise(() => SKILLED).mean).toBeGreaterThan(history + 1.5)
   })
 
   it('ends in fiscal collapse when spending far beyond revenue', () => {
@@ -56,17 +47,18 @@ describe('balance', () => {
   })
 
   it('punishes starving every department', () => {
-    expect(summarise(() => allFunding(0.7)).ratings.D).toBe(RUNS)
+    expect(summarise(() => allFunding(0.7)).max).toBeLessThan(summarise(() => FOLLOW_HISTORY).mean - 10)
   })
 
-  it('never gives S for pouring money into one department', () => {
+  it('never lets one department carry the city', () => {
+    const thoughtful = summarise(() => THOUGHTFUL).mean
     for (const d of ['housing', 'transport', 'economy', 'education', 'health', 'environment'] as const) {
-      expect(summarise(() => boost(d, 1.8)).ratings.S, d).toBe(0)
+      expect(summarise(() => boost(d, 1.8)).mean, d).toBeLessThan(thoughtful)
     }
   })
 
-  it('spreads random play across ratings', () => {
+  it('spreads random play', () => {
     const sum = summarise((seed) => randomStrategy(seed))
-    expect(Object.values(sum.ratings).filter((n) => n > 0).length).toBeGreaterThanOrEqual(3)
+    expect(sum.max - sum.min).toBeGreaterThanOrEqual(4)
   })
 })

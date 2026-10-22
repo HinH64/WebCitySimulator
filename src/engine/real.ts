@@ -111,7 +111,7 @@ export function normalisedSectorDeviation(t: number, realShares: Record<SectorId
   return out
 }
 
-export const SECTOR_BOOST = 1.5
+export const SECTOR_BOOST = 0.75
 
 export function sectorBoost(level: string): Partial<Record<SectorId, number>> {
   const sector = POLICY_BY_ID.industryFocus.effects[level]?.sectorBoost

@@ -600,46 +600,11 @@ input[type='range'] {
 .end { max-width: 960px; margin: 0 auto; padding: 2.5rem 16px 3rem; display: grid; gap: 2.5rem; }
 .end-hero { text-align: center; display: grid; justify-items: center; gap: 0.25rem; }
 .end-hero h1 { font-size: clamp(2rem, 7vw, 2.8rem); font-weight: 700; }
-.end-sub { font-size: 1.1rem; }
-.rating {
-  font-size: 2.8rem;
-  font-weight: 700;
-  width: 5rem;
-  height: 5rem;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  border: 3px solid currentColor;
-  margin: 0.5rem 0;
-}
-.rating-S { color: #b07d00; }
-.rating-A { color: var(--good); }
-.rating-B { color: var(--accent); }
-.rating-C { color: var(--warn); }
-.rating-D { color: var(--bad); }
-.rating-chip {
-  font-weight: 700;
-  width: 1.8rem;
-  height: 1.8rem;
-  display: inline-grid;
-  place-items: center;
-  border-radius: 50%;
-  border: 2px solid currentColor;
-}
-.rating-small { width: 3.2rem; height: 3.2rem; font-size: 1.6rem; margin: 0; flex: none; }
-.end-score { font-size: 1.15rem; margin: 0; }
-.end-score strong { font-size: 2rem; font-weight: 700; }
-.score-parts { display: flex; gap: 0.5rem 1.5rem; flex-wrap: wrap; justify-content: center; margin: 0.5rem 0 0; }
-.score-parts div { display: grid; justify-items: center; }
-.score-parts dt { font-size: 0.8rem; color: var(--ink-2); }
-.score-parts dd { margin: 0; font-size: 1.1rem; font-weight: 600; font-variant-numeric: tabular-nums; }
-.final-indicators { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0.5rem 1.25rem; }
-.final-indicator { display: grid; grid-template-columns: 1fr auto; gap: 0.25rem 0.5rem; align-items: baseline; }
-.final-indicator .indicator-name { font-size: 0.95rem; }
-.final-indicator .bar { grid-column: 1 / -1; height: 6px; }
-.reveal-real { border-top: 1px solid var(--line); padding-top: 1.5rem; }
-.real-card { display: flex; gap: 1rem; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 0.9rem 1rem; }
-.real-card p { margin: 0; }
+.end-summary { list-style: none; padding: 0; margin: 0.75rem 0 0.25rem; display: grid; gap: 0.4rem; max-width: 40rem; text-align: left; }
+.end-summary li { position: relative; padding-left: 1rem; }
+.end-summary li::before { content: ''; position: absolute; left: 0; top: 0.6em; width: 0.45rem; height: 0.45rem; border-radius: 50%; background: var(--ink-2); }
+.end-summary .tone-good::before { background: var(--good); }
+.end-summary .tone-bad::before { background: var(--bad); }
 .trend-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; }
 .trend { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 0.6rem 0.75rem 0.25rem; }
 .trend figcaption { display: flex; justify-content: space-between; font-weight: 600; }

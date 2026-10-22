@@ -94,7 +94,7 @@ export const TAXES = ['salaries', 'profits', 'rates'] as const
 export type TaxId = (typeof TAXES)[number]
 
 export const TAX_INFO: Record<TaxId, { label: string; min: number; max: number; step: number; effect: string }> = {
-  salaries: { label: '薪俸稅標準稅率', min: 10, max: 25, step: 0.5, effect: '稅率高，人才吸引力下降' },
+  salaries: { label: '薪俸稅標準稅率', min: 10, max: 25, step: 0.5, effect: '稅率高，人才吸引力下降，經濟增長放慢' },
   profits: { label: '利得稅', min: 10, max: 25, step: 0.5, effect: '稅率高，企業投資和經濟增長放慢' },
   rates: { label: '差餉（應課差餉租值 %）', min: 3, max: 8, step: 0.5, effect: '稅率高，住屋負擔加重' },
 }

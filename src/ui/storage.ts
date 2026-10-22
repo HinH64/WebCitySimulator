@@ -1,11 +1,9 @@
-import type { Rating } from '../engine/endings'
-
 export interface PastTerm {
   at: string
   seed: number
   title: string
-  rating: Rating
-  score: number
+  /** How many of the six indicators beat real Hong Kong. */
+  betterThanReal: number
   endYear: number
 }
 
@@ -26,7 +24,7 @@ export const DEFAULT_SETTINGS: Settings = {
   pauseWhileEditing: false,
 }
 
-const TERMS_KEY = 'parallel-hk.terms.v3'
+const TERMS_KEY = 'parallel-hk.terms.v4'
 const SPEED_KEY = 'parallel-hk.speed.v1'
 const SETTINGS_KEY = 'parallel-hk.settings.v1'
 const MAX_TERMS = 20

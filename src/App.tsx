@@ -27,8 +27,7 @@ export function App() {
       at: new Date().toISOString(),
       seed: game.seed,
       title: r.title,
-      rating: r.rating,
-      score: Math.round(r.score),
+      betterThanReal: r.betterThanReal,
       endYear: r.endYear,
     })
     setScreen({ kind: 'end', game })

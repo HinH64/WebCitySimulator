@@ -1,14 +1,12 @@
 import { DEPARTMENTS, REAL_TAX, TAXES, TAX_INFO, type DeptId } from '../data/budget'
 import { HISTORY_CHOICES } from '../data/events'
-import { computeIndicators, INDICATOR_LABEL } from './indicators'
+import { computeIndicators, indicatorParts, INDICATOR_LABEL, type IndicatorPart } from './indicators'
 import { clamp, computeMetrics, realMetricsEnd } from './metrics'
 import { POLICIES, type PolicyCategory } from '../data/policies'
 import { realFunding, realPolicyLevel, realReserves, realSpendingMonth, realTax } from './real'
 import { debtTotal, playerPolicyLevel } from './sim'
 import { LAST_MONTH_INDEX, monthIndex, yearOf } from './time'
 import { INDICATOR_IDS, type ChoiceRecord, type GameState, type IndicatorId, type Metrics } from './types'
-
-export type Rating = 'S' | 'A' | 'B' | 'C' | 'D'
 
 export interface ComparisonRow {
   label: string
@@ -65,13 +63,21 @@ export interface ScoreParts {
   population: number
 }
 
+/**
+ * The score is internal: balance tests use it, players never see it. The end screen compares the
+ * city with real Hong Kong instead.
+ */
 export interface CityScore {
   indicators: Record<IndicatorId, number>
   parts: ScoreParts
   score: number
-  rating: Rating
   title: string
-  subtitle: string
+}
+
+/** One line of the end summary; good and bad are against real Hong Kong. */
+export interface SummaryLine {
+  tone: 'good' | 'bad' | 'neutral'
+  text: string
 }
 
 export interface GameResult extends CityScore {
@@ -79,8 +85,11 @@ export interface GameResult extends CityScore {
   endYear: number
   endedEarly: boolean
   reason?: string
-  /** Real Hong Kong over the same years, scored the same way; shown as a reveal at the end. */
+  /** Real Hong Kong over the same years, scored the same way. */
   real: CityScore
+  /** How many of the six indicators beat real Hong Kong. */
+  betterThanReal: number
+  summary: SummaryLine[]
   comparison: ComparisonRow[]
   reveals: RevealRow[]
   policies: PolicyRow[]
@@ -91,27 +100,16 @@ export interface GameResult extends CityScore {
 /** Weights of the score; each part is 0–100. */
 const WEIGHTS = { cityEnd: 0.56, cityAverage: 0.24, fiscal: 0.1, population: 0.1 }
 
-/** Minimum score for each rating; tuned with tests/balance.test.ts so real history lands on B. */
-export const RATING_STEPS: [Rating, number][] = [
-  ['S', 72],
-  ['A', 68],
-  ['B', 62],
-  ['C', 55],
-]
-
-export function ratingFor(score: number, endedEarly: boolean): Rating {
-  if (endedEarly) return 'D'
-  for (const [r, min] of RATING_STEPS) if (score >= min) return r
-  return 'D'
-}
+/** Indicators within this many points of real Hong Kong count as about the same. */
+const SAME_BAND = 2
 
 /**
- * Money is a means, not the goal. Half a year of spending in reserve scores full marks and hoarding
- * more adds nothing; empty reserves score 80; debt costs 4 points per 1% of GDP.
+ * Money is a means, not the goal. Three months of spending in reserve scores full marks and hoarding
+ * more adds nothing; empty reserves score 80; debt costs 2 points per 1% of GDP.
  */
 export function fiscalScore(netReserves: number, yearlySpending: number, gdp: number): number {
-  if (netReserves >= 0) return 80 + 40 * Math.min(0.5, netReserves / Math.max(1, yearlySpending))
-  return clamp(80 + (400 * netReserves) / gdp, 0, 80)
+  if (netReserves >= 0) return 80 + 80 * Math.min(0.25, netReserves / Math.max(1, yearlySpending))
+  return clamp(80 + (200 * netReserves) / gdp, 0, 80)
 }
 
 export function populationScore(population: number): number {
@@ -157,29 +155,84 @@ function typicalScores(): Record<IndicatorId, number> {
   return typical
 }
 
-function cityTitle(ind: Record<IndicatorId, number>, score: number, endedEarly: boolean) {
-  if (endedEarly) return { title: '財政懸崖', subtitle: '債務超過上限，任期提早結束' }
+function cityTitle(ind: Record<IndicatorId, number>, endedEarly: boolean): string {
+  if (endedEarly) return '財政懸崖'
   const typ = typicalScores()
   const diff = Object.fromEntries(INDICATOR_IDS.map((k) => [k, ind[k] - typ[k]])) as Record<IndicatorId, number>
-  const sorted = [...INDICATOR_IDS].sort((a, b) => diff[b] - diff[a])
-  const [first, second] = sorted
-  const worst = sorted[sorted.length - 1]
-  const cost = diff[worst] <= -8 ? `代價：${INDICATOR_LABEL[worst]}偏弱（${Math.round(ind[worst])} 分）` : ''
+  const [first, second] = [...INDICATOR_IDS].sort((a, b) => diff[b] - diff[a])
+  if (INDICATOR_IDS.every((k) => Math.abs(diff[k]) < 3)) return '歷史重演'
+  if (diff[first] < 3) return mean(diff) >= 0 ? '穩健之城' : '停滯之城'
+  const pair = PAIR_TITLES.find((p) => p.pair.includes(first) && p.pair.includes(second))
+  return pair && diff[second] >= 4 ? pair.title : SINGLE_TITLES[first]
+}
 
-  let title: string
-  let subtitle: string
-  if (INDICATOR_IDS.every((k) => Math.abs(diff[k]) < 3)) {
-    title = '歷史重演'
-    subtitle = '你的香港跟真實的香港幾乎一模一樣'
-  } else if (diff[first] < 3) {
-    title = score >= RATING_STEPS[2][1] ? '穩健之城' : '停滯之城'
-    subtitle = '沒有特別突出的地方'
-  } else {
-    const pair = PAIR_TITLES.find((p) => p.pair.includes(first) && p.pair.includes(second))
-    title = pair && diff[second] >= 4 ? pair.title : SINGLE_TITLES[first]
-    subtitle = `最突出：${INDICATOR_LABEL[first]} ${Math.round(ind[first])} 分`
+const FORMATS = [0, 1].map((d) => new Intl.NumberFormat('zh-HK', { minimumFractionDigits: d, maximumFractionDigits: d }))
+const nf = (v: number, decimals = 0) => FORMATS[decimals].format(v)
+
+function withUnit(v: number, unit: string, decimals: number): string {
+  if (unit === '%') return `${nf(v, decimals)}%`
+  return unit ? `${nf(v, decimals)} ${unit}` : nf(v, decimals)
+}
+
+/** The figure behind an indicator gap: the part that differs most in that direction, if any does. */
+function partDetail(yours: IndicatorPart[], real: IndicatorPart[], sign: 1 | -1): string {
+  let best = -1
+  let gap = 1
+  yours.forEach((p, i) => {
+    const g = sign * (p.score - real[i].score)
+    if (g >= gap) {
+      gap = g
+      best = i
+    }
+  })
+  if (best < 0) return ''
+  const p = yours[best]
+  const label = p.label.replace(/（.*）$/, '')
+  return `${label} ${withUnit(p.value, p.unit, p.decimals)}，真實 ${withUnit(real[best].value, p.unit, p.decimals)}`
+}
+
+/** A few lines comparing the city with real Hong Kong at the end: indicators, money and people. */
+function summary(
+  yours: { indicators: Record<IndicatorId, number>; parts: Record<IndicatorId, IndicatorPart[]>; net: number; population: number },
+  real: { indicators: Record<IndicatorId, number>; parts: Record<IndicatorId, IndicatorPart[]>; net: number; population: number },
+  gdp: number,
+  endedEarly: boolean,
+): SummaryLine[] {
+  const lines: SummaryLine[] = []
+  if (endedEarly) lines.push({ tone: 'bad', text: '債務超過上限，任期提早結束。' })
+
+  const diff = (k: IndicatorId) => yours.indicators[k] - real.indicators[k]
+  const better = INDICATOR_IDS.filter((k) => diff(k) >= SAME_BAND).sort((a, b) => diff(b) - diff(a))
+  const worse = INDICATOR_IDS.filter((k) => diff(k) <= -SAME_BAND).sort((a, b) => diff(a) - diff(b))
+  const same = INDICATOR_IDS.length - better.length - worse.length
+  const counts = [
+    better.length ? `${better.length} 項好過真實香港` : '',
+    worse.length ? `${worse.length} 項較差` : '',
+    same ? `${same} 項差不多` : '',
+  ].filter(Boolean)
+  lines.push({
+    tone: 'neutral',
+    text: same === INDICATOR_IDS.length ? '六項指標都跟真實香港差不多。' : `六項指標之中，${counts.join('、')}。`,
+  })
+
+  const indicatorLine = (k: IndicatorId, tone: 'good' | 'bad'): SummaryLine => {
+    const detail = partDetail(yours.parts[k], real.parts[k], tone === 'good' ? 1 : -1)
+    const scores = `${INDICATOR_LABEL[k]} ${Math.round(yours.indicators[k])} 分，真實香港 ${Math.round(real.indicators[k])} 分`
+    return { tone, text: `${scores}${detail ? `：${detail}` : ''}。` }
   }
-  return { title, subtitle: cost && title !== '歷史重演' ? `${subtitle}；${cost}` : subtitle }
+  for (const k of better.slice(0, 2)) lines.push(indicatorLine(k, 'good'))
+  if (worse.length) lines.push(indicatorLine(worse[0], 'bad'))
+
+  lines.push(
+    yours.net >= 0
+      ? { tone: 'neutral', text: `儲備減債務 ${nf(yours.net)} 億元，真實香港 ${nf(real.net)} 億元。` }
+      : {
+          tone: 'bad',
+          text: `債務比儲備多 ${nf(-yours.net)} 億元，約佔本地生產總值 ${nf((-yours.net / gdp) * 100)}%；真實香港有儲備 ${nf(real.net)} 億元。`,
+        },
+  )
+  lines.push({ tone: 'neutral', text: `人口 ${nf(yours.population)} 萬，真實香港 ${nf(real.population)} 萬。` })
+  return lines
 }
 
 export function scoreCity(
@@ -195,8 +248,7 @@ export function scoreCity(
     fiscal: fiscalScore(money.net, money.yearlySpending, money.gdp),
     population: populationScore(population),
   }
-  const score = totalScore(parts)
-  return { indicators, parts, score, rating: ratingFor(score, endedEarly), ...cityTitle(indicators, score, endedEarly) }
+  return { indicators, parts, score: totalScore(parts), title: cityTitle(indicators, endedEarly) }
 }
 
 const REAL_STATE = { quality: { housing: 1, transport: 1, economy: 1, education: 1, health: 1, environment: 1 }, policyLevels: { unemployment: 0, welfare: 0, attract: 0, pm10: 0, green: 0 } }
@@ -287,19 +339,27 @@ export function computeResult(s: GameState): GameResult {
   const m = computeMetrics(s, endT)
   const realM = realMetricsEnd(endT)
   const yearly = s.snapshots.filter((snap) => snap.t <= endT)
+  const net = s.reserves - debtTotal(s)
+  const realNet = realReserves(endT + 1)
   const yours = scoreCity(
     computeIndicators(m, s),
     yearly.map((snap) => snap.indicators),
-    { net: s.reserves - debtTotal(s), yearlySpending: s.last.spendingTotal * 12, gdp: m.gdp },
+    { net, yearlySpending: s.last.spendingTotal * 12, gdp: m.gdp },
     m.population,
     endedEarly,
   )
   const real = scoreCity(
     computeIndicators(realM, REAL_STATE),
     yearly.map((snap) => computeIndicators(realMetricsEnd(snap.t), REAL_STATE)),
-    { net: realReserves(endT + 1), yearlySpending: realSpendingMonth(endT) * 12, gdp: realM.gdp },
+    { net: realNet, yearlySpending: realSpendingMonth(endT) * 12, gdp: realM.gdp },
     realM.population,
     false,
+  )
+  const lines = summary(
+    { indicators: yours.indicators, parts: indicatorParts(m, s.quality), net, population: m.population },
+    { indicators: real.indicators, parts: indicatorParts(realM, REAL_STATE.quality), net: realNet, population: realM.population },
+    m.gdp,
+    endedEarly,
   )
 
   // Only decisions that came up in this city; pending ones show as undecided.
@@ -341,6 +401,8 @@ export function computeResult(s: GameState): GameResult {
     endedEarly,
     reason: s.endedEarly?.reason,
     real,
+    betterThanReal: INDICATOR_IDS.filter((k) => yours.indicators[k] - real.indicators[k] >= SAME_BAND).length,
+    summary: lines,
     comparison: comparison(m, realM, s, endT),
     reveals,
     policies: policyRows(s, endT),

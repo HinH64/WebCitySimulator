@@ -537,6 +537,7 @@ export function step(s: GameState) {
     0.04 * s.dev.postSecondary +
     0.5 * Math.log(m.railPerMillion / real.railPerMillion) -
     0.08 * (s.felt.profits - feltReal.profits) -
+    0.05 * (s.felt.salaries - feltReal.salaries) -
     1.5 * (1 - s.quality.economy)
   s.dev.lnProductivity += growth / 100 / 12
 

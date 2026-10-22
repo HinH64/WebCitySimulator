@@ -44,7 +44,7 @@ export function StartScreen({ initialSpeed, onStart }: Props) {
             <strong>其他工具</strong>：稅率、債務、長期政策和待決定的抉擇都可以隨時處理，不會打斷時間。稅率和政策只會在你改變時改變。
           </li>
           <li>
-            <strong>結局</strong>：2026 年按你的城市本身評分，然後揭曉真實的香港用同一標準得幾分，以及每個關口歷史上怎樣選。
+            <strong>結局</strong>：2026 年把你的香港跟真實的香港比較：六項指標、財政和人口的走勢，以及每個關口歷史上怎樣選。
           </li>
         </ul>
       </section>
@@ -89,9 +89,8 @@ export function StartScreen({ initialSpeed, onStart }: Props) {
           <ul>
             {terms.map((t, i) => (
               <li key={`${t.at}-${i}`}>
-                <span className={`rating-chip rating-${t.rating}`}>{t.rating}</span>
                 <span>{t.title}</span>
-                <span className="mono small">{t.score} 分</span>
+                <span className="small">{t.betterThanReal} 項指標好過真實香港</span>
                 <span className="muted small">
                   {new Date(t.at).toLocaleDateString('zh-HK')}・種子 {t.seed}
                 </span>

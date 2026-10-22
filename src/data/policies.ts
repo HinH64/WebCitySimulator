@@ -171,7 +171,7 @@ export const POLICIES: PolicyDef[] = [
     ],
     availableFrom: [1997, 7],
     real: [{ from: [1997, 7], level: 'off' }],
-    effects: { off: {}, on: { publicUnits: 0.4, privateUnits: 0.4, green: -0.8 } },
+    effects: { off: {}, on: { publicUnits: 0.4, privateUnits: 0.4, green: -1.6 } },
   },
   {
     id: 'cooling',
