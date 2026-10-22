@@ -218,7 +218,8 @@ describe('simulation', () => {
   })
 
   it('takes the status-quo option when a decision expires', () => {
-    const g = playThrough(3, UNTOUCHED)
+    // Kept in office so that every decision of the term comes up.
+    const g = playThrough(3, UNTOUCHED, { removal: false })
     const history = g.choices.filter((c) => c.kind === 'history')
     for (const c of history) {
       expect(c.expired).toBe(true)
@@ -247,7 +248,7 @@ describe('simulation', () => {
   })
 
   it('starts a scheduled policy when the decision says', () => {
-    const g = newGame(2)
+    const g = newGame(2, { removal: false })
     while (g.t <= monthIndex(2010, 7)) step(g)
     const item = g.inbox.find((i) => i.id === 'minWage')!
     answer(g, item.uid, 'legislate')
@@ -260,7 +261,7 @@ describe('simulation', () => {
   })
 
   it('lets the player override a scheduled policy', () => {
-    const g = newGame(2)
+    const g = newGame(2, { removal: false })
     while (g.t <= monthIndex(2010, 7)) step(g)
     answer(g, g.inbox.find((i) => i.id === 'minWage')!.uid, 'legislate')
     setPolicy(g, 'minWage', 'off')

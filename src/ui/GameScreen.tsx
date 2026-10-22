@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { demandRows, topConcerns, type DemandRow } from '../engine/demand'
 import { computeIndicators } from '../engine/indicators'
+import { APPROVAL } from '../engine/approval'
 import { answer, debtTotal, metricsNow, step } from '../engine/sim'
 import { START_YEAR, monthOf, yearOf } from '../engine/time'
 import type { GameState, Signal } from '../engine/types'
@@ -42,6 +43,7 @@ const CHOICE_PAUSE = '有新抉擇待決定，已自動暫停。'
 function pauseReason(signals: Signal[], settings: Settings, game: GameState): string | null {
   const year = yearOf(game.t - 1)
   if (signals.includes('crisis') && settings.pauseOnCrisis) return '財政告急，已自動暫停。看看預算、稅率和債務。'
+  if (signals.includes('approval') && settings.pauseOnCrisis) return '民望告急，已自動暫停。看看需求面板，市民覺得政府對哪些問題沒有回應。'
   if (signals.includes('choice') && settings.pauseOnChoice) return CHOICE_PAUSE
   if (signals.includes('yearEnd') && settings.periodic > 0 && (year - START_YEAR) % settings.periodic === settings.periodic - 1) {
     return `${year} 年完結，已按設定暫停。`
@@ -138,7 +140,14 @@ export function GameScreen({ game, initialSpeed, settings, onSettings, onEnd, on
     const m = metricsNow(game)
     const rows = demandRows(game, m)
     const lastYear = [...game.snapshots].reverse().find((snap) => snap.t <= game.t - 12)
-    return { m, rows, indicators: computeIndicators(m, game), lastYear: lastYear?.indicators, concerns: topConcerns(rows) }
+    return {
+      m,
+      rows,
+      indicators: computeIndicators(m, game),
+      lastYear: lastYear?.indicators,
+      lastApproval: lastYear?.approval,
+      concerns: topConcerns(rows),
+    }
   }, [game, version])
 
   const openPanel = (id: PanelId, row?: DemandRow['id']) => {
@@ -185,6 +194,8 @@ export function GameScreen({ game, initialSpeed, settings, onSettings, onEnd, on
   const debt = debtTotal(game)
   const balance = game.last.revenueTotal - game.last.spendingTotal
   const { m } = view
+  const approval = game.approval.value
+  const approvalTone = approval < APPROVAL.warnLine ? 'bad' : approval < APPROVAL.recoverLine + 5 ? 'warn' : ''
 
   const tabs = (className: string) => (
     <nav className={className} role="tablist" aria-label="面板">
@@ -233,6 +244,13 @@ export function GameScreen({ game, initialSpeed, settings, onSettings, onEnd, on
               <span className="eyebrow">人口</span>
               <strong>{formatNumber(m.population, 1)} 萬</strong>
               <span className={`small ${game.last.popChange >= 0 ? 'good' : 'bad'}`}>{signed(game.last.popChange * 12, 1)} 萬／年</span>
+            </div>
+            <div className="vital" title={`0–100。連續一年低於 ${APPROVAL.removeLine} 會被迫下台。`}>
+              <span className="eyebrow">民望</span>
+              <strong className={approvalTone}>{formatNumber(approval)}</strong>
+              {view.lastApproval !== undefined && (
+                <span className={`small ${approval >= view.lastApproval ? 'good' : 'bad'}`}>{signed(approval - view.lastApproval, 0)}／年</span>
+              )}
             </div>
           </div>
           <div className="controls">

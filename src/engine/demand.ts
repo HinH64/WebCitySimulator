@@ -1,18 +1,23 @@
 import { DEPT_INFO, type DeptId } from '../data/budget'
 import { POLICY_BY_ID } from '../data/policies'
+import { areaSeverity, response, topAreas } from './approval'
 import { levelAt } from './real'
 import { playerPolicyLevel } from './sim'
 import { LAST_MONTH_INDEX } from './time'
-import type { GameState, Metrics, StockKey } from './types'
+import type { AreaId, GameState, Metrics, StockKey } from './types'
 
 export type Status = 'good' | 'warn' | 'bad'
 
+/** Whether people feel the government has lately done something about it; absent when nobody worries. */
+export type Response = 'yes' | 'some' | 'no'
+
 export interface DemandRow {
-  id: 'housing' | 'jobs' | 'transport' | 'care' | 'education' | 'environment'
+  id: AreaId
   title: string
   status: Status
   /** Higher means a more pressing problem; used to rank what people worry about. */
   severity: number
+  response?: Response
   figures: { label: string; value: string }[]
   headline: string
   reasons: string[]
@@ -25,10 +30,6 @@ const pct = (f: number) => `${Math.round(f * 100)}%`
 function status(v: number, good: number, warn: number, higherIsBetter: boolean): Status {
   if (higherIsBetter) return v >= good ? 'good' : v >= warn ? 'warn' : 'bad'
   return v <= good ? 'good' : v <= warn ? 'warn' : 'bad'
-}
-
-function severity(v: number, good: number, bad: number): number {
-  return Math.max(0, Math.min(1, (v - good) / (bad - good)))
 }
 
 /** Sum of scheduled changes to a stock within the next `months`. */
@@ -66,6 +67,7 @@ export function demandRows(s: GameState, m: Metrics): DemandRow[] {
   const popChange3 = past3 ? m.population - past3.population : 0
   const policy = (id: string) => playerPolicyLevel(s, POLICY_BY_ID[id], t)
   const compact = (xs: (string | undefined)[]) => xs.filter((x): x is string => Boolean(x))
+  const sev = areaSeverity(m)
 
   const supply = m.publicUnits + m.privateUnits
   const shortage = m.households - supply * 0.96
@@ -74,7 +76,7 @@ export function demandRows(s: GameState, m: Metrics): DemandRow[] {
     id: 'housing',
     title: '住屋',
     status: status(m.prhWait, 3, 5, false),
-    severity: severity(m.prhWait, 2.5, 7),
+    severity: sev.housing,
     figures: [
       { label: '住戶', value: `${nf(m.households, 1)} 萬` },
       { label: '住宅單位', value: `${nf(supply, 1)} 萬（公營 ${nf(m.publicUnits, 1)}、私人 ${nf(m.privateUnits, 1)}）` },
@@ -104,7 +106,7 @@ export function demandRows(s: GameState, m: Metrics): DemandRow[] {
     id: 'jobs',
     title: '就業',
     status: status(m.unemployment, 4, 6, false),
-    severity: severity(m.unemployment, 3, 8),
+    severity: sev.jobs,
     figures: [
       { label: '勞動年齡人口', value: `${nf(m.working, 0)} 萬` },
       { label: '失業率', value: `${nf(m.unemployment, 1)}%` },
@@ -127,7 +129,7 @@ export function demandRows(s: GameState, m: Metrics): DemandRow[] {
     id: 'transport',
     title: '交通',
     status: status(m.railPerMillion, 30, 20, true),
-    severity: severity(-m.railPerMillion, -30, -12),
+    severity: sev.transport,
     figures: [
       { label: '鐵路網絡', value: `${nf(m.railKm)} 公里` },
       { label: '每百萬人鐵路', value: `${nf(m.railPerMillion, 1)} 公里` },
@@ -148,7 +150,7 @@ export function demandRows(s: GameState, m: Metrics): DemandRow[] {
     id: 'care',
     title: '醫療安老',
     status: status(m.carePerThousandElderly, 50, 30, true),
-    severity: severity(-m.carePerThousandElderly, -60, -20),
+    severity: sev.care,
     figures: [
       { label: '長者（65 歲或以上）', value: `${nf(m.elderly)} 萬（${nf((m.elderly / m.population) * 100, 1)}%）` },
       { label: '病床及安老宿位', value: `${nf(m.careCapacity, 1)} 萬` },
@@ -170,7 +172,7 @@ export function demandRows(s: GameState, m: Metrics): DemandRow[] {
     id: 'education',
     title: '教育',
     status: status(m.postSecondary, 35, 25, true),
-    severity: severity(-m.postSecondary, -40, -15),
+    severity: sev.education,
     figures: [
       { label: '具專上教育程度人口', value: `${nf(m.postSecondary, 1)}%` },
       { label: '專業服務及創科佔經濟', value: `${nf(m.professionalShare, 1)}%` },
@@ -187,7 +189,7 @@ export function demandRows(s: GameState, m: Metrics): DemandRow[] {
     id: 'environment',
     title: '環境',
     status: status(m.pm10, 30, 45, false),
-    severity: severity(m.pm10, 25, 60),
+    severity: sev.environment,
     figures: [
       { label: 'PM10 年均濃度', value: `${nf(m.pm10)} 微克/立方米` },
       { label: '郊野公園及保護區', value: `${nf(m.green, 1)}%` },
@@ -203,10 +205,18 @@ export function demandRows(s: GameState, m: Metrics): DemandRow[] {
     ]),
   }
 
-  return [housing, jobs, transport, care, education, environment]
+  const rows = [housing, jobs, transport, care, education, environment]
+  for (const r of rows) {
+    if (r.severity <= 0.1) continue
+    const v = response(s, r.id)
+    // Goodwill from acting elsewhere reaches 'some' at most; 'yes' needs something done for this area.
+    r.response = v >= 0.75 ? 'yes' : v < 0.3 ? 'no' : 'some'
+  }
+  return rows
 }
 
 /** The three most pressing problems, as people would put them. */
 export function topConcerns(rows: DemandRow[]): DemandRow[] {
-  return [...rows].filter((r) => r.severity > 0.25).sort((a, b) => b.severity - a.severity).slice(0, 3)
+  const top = topAreas(Object.fromEntries(rows.map((r) => [r.id, r.severity])) as Record<AreaId, number>)
+  return top.map((id) => rows.find((r) => r.id === id)!)
 }

@@ -141,6 +141,7 @@ input {
 .ind-environment { --c: var(--c-environment); }
 .ind-finance { --c: var(--c-finance); }
 .ind-population { --c: var(--c-population); }
+.ind-approval { --c: var(--accent); }
 
 .muted { color: var(--ink-2); }
 .small { font-size: 0.85rem; }
@@ -491,6 +492,10 @@ input[type='range'] {
 .demand.focused { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .demand header { display: flex; justify-content: space-between; align-items: center; }
 .demand-headline { font-weight: 600; margin: 0.25rem 0; }
+.response { font-size: 0.85rem; margin: 0 0 0.25rem; }
+.response-yes { color: var(--good); }
+.response-some { color: var(--warn); }
+.response-no { color: var(--bad); }
 .status-pill { font-size: 0.75rem; font-weight: 500; padding: 0 0.4rem; border-radius: var(--radius-sm); border: 1px solid currentColor; }
 .status-pill.good { color: var(--good); }
 .status-pill.warn { color: var(--warn); }

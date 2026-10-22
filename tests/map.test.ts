@@ -108,7 +108,7 @@ describe('the city on the map', () => {
     expect(more.dev.publicUnits + more.dev.privateUnits).toBeGreaterThan(5)
     expect(kinds(cityMapAt(more).grid, 'public', 'private')).toBeGreaterThan(kinds(realMapAt(at(more)), 'public', 'private') + 20)
 
-    const less = playThrough(3, allFunding(0.7))
+    const less = playThrough(3, allFunding(0.7), { removal: false })
     expect(less.dev.publicUnits).toBeLessThan(-2)
     expect(kinds(cityMapAt(less).grid, 'public')).toBeLessThan(kinds(realMapAt(at(less)), 'public'))
   })
@@ -131,7 +131,7 @@ describe('the city on the map', () => {
   it('opens more railway with more transport money, and less with less', () => {
     const more = playThrough(3, boost('transport', 1.8))
     expect(cityMapAt(more).rail.segments.length).toBeGreaterThan(realRailAt(at(more)).segments.length)
-    const less = playThrough(3, allFunding(0.7))
+    const less = playThrough(3, allFunding(0.7), { removal: false })
     expect(cityMapAt(less).rail.segments.length).toBeLessThan(realRailAt(at(less)).segments.length)
   })
 

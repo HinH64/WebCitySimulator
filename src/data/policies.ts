@@ -1,3 +1,4 @@
+import type { AreaId } from '../engine/types'
 import type { SectorId } from './sectors'
 
 export type YearMonth = [number, number]
@@ -63,6 +64,10 @@ export const POLICY_CATEGORY_LABEL: Record<PolicyCategory, string> = {
 export interface PolicyDef {
   id: string
   category: PolicyCategory
+  /** The worry it answers; changing it counts as a response there. Absent for taxes. */
+  area?: AreaId
+  /** Approval lost at once when the city switches to one of these levels. */
+  unpopular?: Record<string, number>
   label: string
   description: string
   /** levels[0] is the "off" or neutral level. */
@@ -81,6 +86,7 @@ export const POLICIES: PolicyDef[] = [
   {
     id: 'hos85',
     category: 'housing',
+    area: 'housing',
     label: '房屋供應目標',
     description: '訂下每年的住宅供應目標，加快公營和私人住宅落成。增加供應、壓低樓價，但經濟低迷時會加深衰退。',
     levels: [
@@ -103,6 +109,7 @@ export const POLICIES: PolicyDef[] = [
   {
     id: 'hos',
     category: 'housing',
+    area: 'housing',
     label: '資助出售房屋',
     description: '以低於市價出售資助房屋，讓中低收入家庭置業，減輕公屋輪候，但會分薄私樓需求。',
     levels: [
@@ -125,6 +132,7 @@ export const POLICIES: PolicyDef[] = [
   {
     id: 'landRatio',
     category: 'housing',
+    area: 'housing',
     label: '公私營房屋比例',
     description: '新土地用作公營房屋還是賣地。公營比例高，輪候縮短；私營比例高，賣地收入多。',
     levels: [
@@ -147,6 +155,7 @@ export const POLICIES: PolicyDef[] = [
   {
     id: 'lph',
     category: 'housing',
+    area: 'housing',
     label: '組裝合成快速建屋',
     description: '用工廠預製的組件快速興建過渡性公屋，約 18 個月見效，但成本較高。',
     levels: [
@@ -163,6 +172,8 @@ export const POLICIES: PolicyDef[] = [
   {
     id: 'countryPark',
     category: 'housing',
+    area: 'housing',
+    unpopular: { on: 5 },
     label: '郊野公園邊陲建屋',
     description: '在郊野公園邊陲建屋。增加可建屋土地，但減少保護範圍。',
     levels: [
@@ -176,6 +187,7 @@ export const POLICIES: PolicyDef[] = [
   {
     id: 'cooling',
     category: 'housing',
+    area: 'housing',
     label: '額外印花稅（壓抑炒賣）',
     description: '向短期轉售和非首置買家徵收額外印花稅。樓價升幅放慢，印花稅收入增加，但成交減少。',
     levels: [
@@ -198,6 +210,7 @@ export const POLICIES: PolicyDef[] = [
   {
     id: 'minWage',
     category: 'economy',
+    area: 'jobs',
     label: '法定最低工資',
     description: '保障基層收入。低技術職位略減。',
     levels: [
@@ -214,6 +227,7 @@ export const POLICIES: PolicyDef[] = [
   {
     id: 'oala',
     category: 'social',
+    area: 'care',
     label: '長者生活津貼',
     description: '經濟審查的長者津貼，改善長者生活。',
     levels: [
@@ -230,6 +244,7 @@ export const POLICIES: PolicyDef[] = [
   {
     id: 'upr',
     category: 'social',
+    area: 'care',
     label: '全民退休保障',
     description: '所有長者每月領取退休金。長者生活大幅改善，但長遠財政壓力大。',
     levels: [
@@ -243,6 +258,7 @@ export const POLICIES: PolicyDef[] = [
   {
     id: 'cleanAir',
     category: 'environment',
+    area: 'environment',
     label: '空氣污染管制',
     description: '淘汰舊柴油車、收緊排放標準。改善空氣，但有成本。',
     levels: [
@@ -264,6 +280,7 @@ export const POLICIES: PolicyDef[] = [
   {
     id: 'talent',
     category: 'economy',
+    area: 'education',
     label: '人才入境計劃',
     description: '吸引外地專才來港。人口和經濟增加，住屋需求也上升。',
     levels: [
@@ -286,6 +303,7 @@ export const POLICIES: PolicyDef[] = [
   {
     id: 'industryFocus',
     category: 'economy',
+    area: 'jobs',
     label: '產業重點',
     description: '集中資源發展一個行業，令該行業增長加快。',
     levels: [
@@ -311,6 +329,7 @@ export const POLICIES: PolicyDef[] = [
   {
     id: 'gst',
     category: 'tax',
+    unpopular: { on: 8 },
     label: '銷售稅',
     description: '開徵 5% 銷售稅（商品及服務稅）。擴闊稅基、增加收入，但加重市民負擔、拖慢消費。',
     levels: [
@@ -324,6 +343,7 @@ export const POLICIES: PolicyDef[] = [
   {
     id: 'fare',
     category: 'transport',
+    area: 'transport',
     label: '公共交通乘車優惠',
     description: '資助市民乘搭公共交通。長者多出外活動、少用私家車，但每年要付車資差額。',
     levels: [
@@ -345,6 +365,7 @@ export const POLICIES: PolicyDef[] = [
   {
     id: 'cycling',
     category: 'transport',
+    area: 'environment',
     label: '鼓勵單車',
     description: '興建單車徑和泊車位，鼓勵短途以單車代步。',
     levels: [
@@ -358,6 +379,7 @@ export const POLICIES: PolicyDef[] = [
   {
     id: 'freeKG',
     category: 'social',
+    area: 'education',
     label: '免費幼稚園',
     description: '資助半日制幼稚園課程，減輕年輕家庭負擔。',
     levels: [
@@ -374,6 +396,7 @@ export const POLICIES: PolicyDef[] = [
   {
     id: 'primaryCare',
     category: 'social',
+    area: 'care',
     label: '地區基層醫療',
     description: '在各區設立康健中心，提供預防和慢性病管理，減少入院。',
     levels: [
@@ -390,6 +413,7 @@ export const POLICIES: PolicyDef[] = [
   {
     id: 'evPromo',
     category: 'environment',
+    area: 'environment',
     label: '電動車推廣',
     description: '資助充電設施和電動車，減少路邊廢氣。',
     levels: [
@@ -403,6 +427,8 @@ export const POLICIES: PolicyDef[] = [
   {
     id: 'wasteCharge',
     category: 'environment',
+    area: 'environment',
+    unpopular: { on: 3 },
     label: '垃圾徵費',
     description: '按量徵收垃圾費，減少廢物，延遲堆填區擴建，但市民要多付一筆錢。',
     levels: [

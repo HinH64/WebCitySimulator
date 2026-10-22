@@ -136,6 +136,7 @@ export const HISTORY_CHOICES: HistoryChoice[] = [
     year: 1998,
     month: 8,
     title: '金融保衛戰',
+    areas: ['jobs'],
     text: '國際炒家同時沽空港元和港股，恒生指數跌至約 6,600 點。要動用外匯基金入市嗎？',
     options: [
       { id: 'buy', label: '動用外匯基金入市購買港股', effects: [] },
@@ -166,6 +167,7 @@ export const HISTORY_CHOICES: HistoryChoice[] = [
     year: 1999,
     month: 11,
     title: '主題樂園',
+    areas: ['jobs'],
     text: '與華特迪士尼公司商討在竹篙灣興建主題樂園，政府要投入大量資金和土地。',
     options: [
       {
@@ -235,6 +237,7 @@ export const HISTORY_CHOICES: HistoryChoice[] = [
     year: 2007,
     month: 10,
     title: '大型基建',
+    areas: ['transport'],
     text: '經濟復甦，庫房回復盈餘。要推展一系列大型基建嗎？包括沙中綫、高鐵香港段和港珠澳大橋，總造價約 2,900 億元。',
     options: [
       {
@@ -440,6 +443,7 @@ export const HISTORY_CHOICES: HistoryChoice[] = [
     year: 2018,
     month: 10,
     title: '新土地從何來',
+    areas: ['housing'],
     text: '土地供應不足。下一批大型新土地從哪裡來？',
     options: [
       { id: 'reclaim', label: '在中部水域填海興建人工島', effects: [money(120, 6, 90), { kind: 'stock', key: 'green', v: -0.1, at: 60, over: 24 }] },
@@ -495,6 +499,7 @@ export const HISTORY_CHOICES: HistoryChoice[] = [
     year: 2021,
     month: 10,
     title: '北部發展',
+    areas: ['housing'],
     text: '新界北有大片棕地和農地，又接近深圳。要怎樣規劃？',
     options: [
       {

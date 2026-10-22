@@ -3,6 +3,7 @@ import { CITY_EVENTS } from '../data/cityEvents'
 import { HISTORY_CHOICES, HISTORY_EVENTS, PARALLEL_EVENTS } from '../data/events'
 import { POLICIES, POLICY_BY_ID, type PolicyDef, type PolicyEffect } from '../data/policies'
 import { yearValue } from '../data/real'
+import { APPROVAL, newApproval, noteAnswer, updateApproval } from './approval'
 import { computeIndicators } from './indicators'
 import { attractiveness, clamp, computeMetrics, fullQuality, realMetrics, zeroDeviations } from './metrics'
 import {
@@ -32,6 +33,7 @@ import type {
   ChoiceRecord,
   CityContext,
   Effect,
+  EndCause,
   GameOptions,
   GameState,
   HistoryChoice,
@@ -135,24 +137,27 @@ function newAccumulator(year: number, m: Metrics): YearAccumulator {
 
 export function newGame(seed: number, options: Partial<GameOptions> = {}): GameState {
   const funding = Object.fromEntries(DEPARTMENTS.map((d) => [d, realFunding(d, 0)])) as Record<DeptId, number>
+  const taxes = realTaxes(0)
+  const policies = Object.fromEntries(POLICIES.map((p) => [p.id, p.real[0].level]))
   const s: GameState = {
     seed,
     rng: seed,
-    options: { events: true, ...options },
+    options: { events: true, removal: true, ...options },
     t: 0,
     status: 'running',
     dev: zeroDeviations(),
     quality: fullQuality(),
     funding,
-    taxes: realTaxes(0),
+    taxes,
     felt: { ...realFelt(0) },
-    policies: Object.fromEntries(POLICIES.map((p) => [p.id, p.real[0].level])),
+    policies,
     policyQueue: [],
     policyLevels: { unemployment: 0, welfare: 0, attract: 0, pm10: 0, green: 0 },
     sectors: { ...realSectors(0) },
     reserves: realReserves(0),
     bonds: [],
     nextBondId: 1,
+    approval: newApproval({ funding, taxes, policies }),
     pipeline: {},
     inbox: [],
     nextInboxId: 1,
@@ -290,6 +295,7 @@ export function answer(s: GameState, uid: number, optionId: string, expired = fa
   const opt = item.options.find((o) => o.id === optionId)
   if (!opt) return undefined
   s.inbox = s.inbox.filter((i) => i.uid !== uid)
+  noteAnswer(s, item, expired)
 
   if (item.kind === 'history') {
     const ch = HISTORY_CHOICES.find((c) => c.id === item.id)!
@@ -452,8 +458,16 @@ function snapshot(s: GameState, t: number) {
     indicators: computeIndicators(m, s),
     reserves: s.reserves,
     debt: debtTotal(s),
+    approval: s.approval.value,
     metrics: m,
   })
+}
+
+function endEarly(s: GameState, t: number, cause: EndCause, reason: string) {
+  s.status = 'ended'
+  s.endedEarly = { t, reason, cause }
+  snapshot(s, t)
+  s.t = t + 1
 }
 
 /** Simulates one month. */
@@ -630,11 +644,8 @@ export function step(s: GameState) {
   s.migrationLog = [...s.migrationLog.slice(-11), s.last.otherNet]
 
   if (debtRatio > DEBT.ceiling) {
-    s.status = 'ended'
-    s.endedEarly = { t, reason: '債務超過上限，財政崩潰' }
     s.news.push({ t, kind: 'system', text: `${year} 年 ${month} 月：債務超過本地生產總值的 30%，財政崩潰，你的任期提早結束。`, tone: 'bad' })
-    snapshot(s, t)
-    s.t = t + 1
+    endEarly(s, t, 'debt', '債務超過上限，財政崩潰')
     return
   }
 
@@ -670,6 +681,17 @@ export function step(s: GameState) {
     }
     cityDynamics(s, ctx)
     cityEvent(s, ctx)
+  }
+
+  if (updateApproval(s, m) && s.options.removal) {
+    s.news.push({
+      t,
+      kind: 'system',
+      text: `${year} 年 ${month} 月：民望連續一年低於 ${APPROVAL.removeLine}，你被迫下台，任期提早結束。`,
+      tone: 'bad',
+    })
+    endEarly(s, t, 'approval', '民望長期低迷，被迫下台')
+    return
   }
 
   if (month === 12) {

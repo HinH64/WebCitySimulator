@@ -91,6 +91,31 @@ export interface HistoryChoice {
   reveal: string
   /** Comes up only while the player's policy is at one of these levels. */
   onlyIf?: { policy: string; levels: string[] }
+  /** Areas people see answering it as a response to, besides those of the policies it sets. */
+  areas?: AreaId[]
+}
+
+/** What people worry about: the rows of the demand panel. Approval follows how the government responds to each. */
+export const AREA_IDS = ['housing', 'jobs', 'transport', 'care', 'education', 'environment'] as const
+export type AreaId = (typeof AREA_IDS)[number]
+
+export interface ApprovalState {
+  /** 0–100. */
+  value: number
+  /** How much people feel the government has lately responded in each area (0–1, fades over two years). */
+  credit: Record<AreaId, number>
+  /** Goodwill from answering decisions and changing policies in any area (0–1, fades over a year). */
+  active: number
+  /** Consecutive months below the removal line. */
+  lowMonths: number
+  /** Funding at the end of each of the last 12 months, so only going above all of them counts as a raise. */
+  fundingLog: Record<DeptId, number>[]
+  /** Funding, taxes and policies at the end of last month, to notice what changed. */
+  seen: { funding: Record<DeptId, number>; taxes: Record<TaxId, number>; policies: Record<string, string> }
+  /** Month each policy last earned credit, so switching back and forth earns nothing. */
+  policyCredit: Record<string, number>
+  /** Warning already given: 0 none, 1 below the warning line, 2 below the removal line. */
+  warned: 0 | 1 | 2
 }
 
 /** What city events can look at: the city's own state, never the real history. */
@@ -127,6 +152,8 @@ export interface ParallelEvent {
   effects?: Effect[]
   options?: ChoiceOption[]
   defaultOptionId?: string
+  /** Areas people see answering it as a response to. */
+  areas?: AreaId[]
 }
 
 export type CityEventCategory = 'transport' | 'housing' | 'health' | 'economy' | 'environment' | 'weather' | 'education' | 'society'
@@ -188,7 +215,10 @@ export interface Bond {
 }
 
 /** Events the UI may pause for, depending on the player's settings. */
-export type Signal = 'choice' | 'crisis' | 'yearEnd'
+export type Signal = 'choice' | 'crisis' | 'approval' | 'yearEnd'
+
+/** Why a term ended before October 2026. */
+export type EndCause = 'debt' | 'approval'
 
 export interface YearSnapshot {
   year: number
@@ -196,6 +226,7 @@ export interface YearSnapshot {
   indicators: Record<IndicatorId, number>
   reserves: number
   debt: number
+  approval: number
   metrics: Metrics
 }
 
@@ -216,6 +247,8 @@ export interface YearAccumulator {
 export interface GameOptions {
   /** City events and city dynamics; off reproduces history exactly when following it. */
   events: boolean
+  /** Low approval can end the term; off still tracks approval but keeps the city in office. */
+  removal: boolean
 }
 
 export interface GameState {
@@ -225,7 +258,7 @@ export interface GameState {
   /** Month about to be simulated. */
   t: number
   status: 'running' | 'ended'
-  endedEarly?: { t: number; reason: string }
+  endedEarly?: { t: number; reason: string; cause: EndCause }
 
   dev: Deviations
   quality: Record<DeptId, number>
@@ -245,6 +278,8 @@ export interface GameState {
   reserves: number
   bonds: Bond[]
   nextBondId: number
+
+  approval: ApprovalState
 
   /** Scheduled changes by month index. */
   pipeline: Record<number, Partial<Record<StockKey, number>>>

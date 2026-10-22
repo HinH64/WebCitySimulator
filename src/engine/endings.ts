@@ -6,7 +6,7 @@ import { POLICIES, type PolicyCategory } from '../data/policies'
 import { realFunding, realPolicyLevel, realReserves, realSpendingMonth, realTax } from './real'
 import { debtTotal, playerPolicyLevel } from './sim'
 import { LAST_MONTH_INDEX, monthIndex, yearOf } from './time'
-import { INDICATOR_IDS, type ChoiceRecord, type GameState, type IndicatorId, type Metrics } from './types'
+import { INDICATOR_IDS, type ChoiceRecord, type EndCause, type GameState, type IndicatorId, type Metrics } from './types'
 
 export interface ComparisonRow {
   label: string
@@ -84,7 +84,10 @@ export interface GameResult extends CityScore {
   endT: number
   endYear: number
   endedEarly: boolean
+  cause?: EndCause
   reason?: string
+  /** Approval at the end of each year in `trend`; real Hong Kong has none to compare. */
+  approval: number[]
   /** Real Hong Kong over the same years, scored the same way. */
   real: CityScore
   /** How many of the six indicators beat real Hong Kong. */
@@ -155,8 +158,14 @@ function typicalScores(): Record<IndicatorId, number> {
   return typical
 }
 
-function cityTitle(ind: Record<IndicatorId, number>, endedEarly: boolean): string {
-  if (endedEarly) return '財政懸崖'
+const EARLY_TITLE: Record<EndCause, string> = { debt: '財政懸崖', approval: '被迫下台' }
+const EARLY_LINE: Record<EndCause, string> = {
+  debt: '債務超過上限，任期提早結束。',
+  approval: '民望連續一年低於 25，被迫下台，任期提早結束。',
+}
+
+function cityTitle(ind: Record<IndicatorId, number>, early: EndCause | undefined): string {
+  if (early) return EARLY_TITLE[early]
   const typ = typicalScores()
   const diff = Object.fromEntries(INDICATOR_IDS.map((k) => [k, ind[k] - typ[k]])) as Record<IndicatorId, number>
   const [first, second] = [...INDICATOR_IDS].sort((a, b) => diff[b] - diff[a])
@@ -196,10 +205,10 @@ function summary(
   yours: { indicators: Record<IndicatorId, number>; parts: Record<IndicatorId, IndicatorPart[]>; net: number; population: number },
   real: { indicators: Record<IndicatorId, number>; parts: Record<IndicatorId, IndicatorPart[]>; net: number; population: number },
   gdp: number,
-  endedEarly: boolean,
+  early: EndCause | undefined,
 ): SummaryLine[] {
   const lines: SummaryLine[] = []
-  if (endedEarly) lines.push({ tone: 'bad', text: '債務超過上限，任期提早結束。' })
+  if (early) lines.push({ tone: 'bad', text: EARLY_LINE[early] })
 
   const diff = (k: IndicatorId) => yours.indicators[k] - real.indicators[k]
   const better = INDICATOR_IDS.filter((k) => diff(k) >= SAME_BAND).sort((a, b) => diff(b) - diff(a))
@@ -240,7 +249,7 @@ export function scoreCity(
   yearlyIndicators: Record<IndicatorId, number>[],
   money: { net: number; yearlySpending: number; gdp: number },
   population: number,
-  endedEarly: boolean,
+  early: EndCause | undefined,
 ): CityScore {
   const parts: ScoreParts = {
     cityEnd: mean(indicators),
@@ -248,7 +257,7 @@ export function scoreCity(
     fiscal: fiscalScore(money.net, money.yearlySpending, money.gdp),
     population: populationScore(population),
   }
-  return { indicators, parts, score: totalScore(parts), title: cityTitle(indicators, endedEarly) }
+  return { indicators, parts, score: totalScore(parts), title: cityTitle(indicators, early) }
 }
 
 const REAL_STATE = { quality: { housing: 1, transport: 1, economy: 1, education: 1, health: 1, environment: 1 }, policyLevels: { unemployment: 0, welfare: 0, attract: 0, pm10: 0, green: 0 } }
@@ -336,6 +345,7 @@ function fundingPeriods(s: GameState, endT: number): FundingPeriod[] {
 export function computeResult(s: GameState): GameResult {
   const endT = s.endedEarly ? s.endedEarly.t : Math.min(s.t - 1, LAST_MONTH_INDEX)
   const endedEarly = Boolean(s.endedEarly)
+  const cause = s.endedEarly?.cause
   const m = computeMetrics(s, endT)
   const realM = realMetricsEnd(endT)
   const yearly = s.snapshots.filter((snap) => snap.t <= endT)
@@ -346,20 +356,20 @@ export function computeResult(s: GameState): GameResult {
     yearly.map((snap) => snap.indicators),
     { net, yearlySpending: s.last.spendingTotal * 12, gdp: m.gdp },
     m.population,
-    endedEarly,
+    cause,
   )
   const real = scoreCity(
     computeIndicators(realM, REAL_STATE),
     yearly.map((snap) => computeIndicators(realMetricsEnd(snap.t), REAL_STATE)),
     { net: realNet, yearlySpending: realSpendingMonth(endT) * 12, gdp: realM.gdp },
     realM.population,
-    false,
+    undefined,
   )
   const lines = summary(
     { indicators: yours.indicators, parts: indicatorParts(m, s.quality), net, population: m.population },
     { indicators: real.indicators, parts: indicatorParts(realM, REAL_STATE.quality), net: realNet, population: realM.population },
     m.gdp,
-    endedEarly,
+    cause,
   )
 
   // Only decisions that came up in this city; pending ones show as undecided.
@@ -399,7 +409,9 @@ export function computeResult(s: GameState): GameResult {
     endT,
     endYear: yearOf(endT),
     endedEarly,
+    cause,
     reason: s.endedEarly?.reason,
+    approval: yearly.map((snap) => snap.approval),
     real,
     betterThanReal: INDICATOR_IDS.filter((k) => yours.indicators[k] - real.indicators[k] >= SAME_BAND).length,
     summary: lines,

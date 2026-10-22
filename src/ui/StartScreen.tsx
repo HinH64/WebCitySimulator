@@ -44,6 +44,9 @@ export function StartScreen({ initialSpeed, onStart }: Props) {
             <strong>其他工具</strong>：稅率、債務、長期政策和待決定的抉擇都可以隨時處理，不會打斷時間。稅率和政策只會在你改變時改變。
           </li>
           <li>
+            <strong>民望</strong>：問題嚴重而政府沒有回應（加撥款、改政策、回覆抉擇），民望會慢慢下跌；連續一年低於 25 就會被迫下台。
+          </li>
+          <li>
             <strong>結局</strong>：2026 年把你的香港跟真實的香港比較：六項指標、財政和人口的走勢，以及每個關口歷史上怎樣選。
           </li>
         </ul>

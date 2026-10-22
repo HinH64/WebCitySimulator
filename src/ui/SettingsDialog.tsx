@@ -45,7 +45,7 @@ export function SettingsDialog({ settings, onChange, onClose, onSources, onQuit 
       </label>
       <label className="setting check">
         <input type="checkbox" checked={settings.pauseOnCrisis} onChange={() => toggle('pauseOnCrisis')} />
-        財政危機時暫停（庫房見底、債務接近上限）
+        危機時暫停（庫房見底、債務接近上限、民望告急）
       </label>
       <label className="setting check">
         <input type="checkbox" checked={settings.pauseWhileEditing} onChange={() => toggle('pauseWhileEditing')} />

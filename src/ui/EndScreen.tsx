@@ -80,6 +80,7 @@ export function EndScreen({ game, onReplaySeed, onNewGame }: Props) {
             real={r.trend.map((p) => p.real.population)}
             unit=" 萬"
           />
+          <TrendChart title="民望（真實香港不比較）" colorClass="ind-approval" years={years} yours={r.approval} range={[0, 100]} />
         </div>
         <p className="muted small chart-legend">
           <span className="legend-line yours" /> 你的香港　<span className="legend-line real" /> 真實香港
