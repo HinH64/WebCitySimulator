@@ -110,7 +110,7 @@ export function StartScreen({ initialSpeed, onStart }: Props) {
         </section>
       )}
 
-      <footer className="start-foot muted small">靈感來自《80億分之1》。數據為約數，模型為簡化的遊戲模型。</footer>
+      <footer className="start-foot muted small">靈感來自《80億分之1》。數據部分來自官方統計，部分仍為約數；模型為簡化的遊戲模型。</footer>
 
       {showSources && <SourcesDialog onClose={() => setShowSources(false)} />}
     </div>

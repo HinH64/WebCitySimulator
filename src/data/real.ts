@@ -1,10 +1,12 @@
 /**
  * Real Hong Kong series, 1997–2026, one value per calendar year.
  *
- * Figures are approximations compiled from public reports and memory, because the build
- * environment cannot reach government data portals. Stage 2 replaces them with official data.
+ * Series built with official() come from government tables via scripts/fetch-official.mjs. The rest
+ * are still approximations compiled from public reports, and Stage 2 replaces them one by one.
  * Every series lists its source and how reliable the current figures are.
  */
+
+import { OFFICIAL, type OfficialSeries } from './official'
 
 export const FIRST_YEAR = 1997
 export const LAST_YEAR = 2026
@@ -16,6 +18,40 @@ export interface Series {
   note: string
   /** Index 0 = 1997. */
   values: number[]
+  /** Official tables the values come from; absent while the series is an approximation. */
+  tables?: string[]
+}
+
+/** Link to an official table: a C&SD table ID, or 'DH' for the Department of Health dataset. */
+export function tableLink(table: string): { label: string; url: string } {
+  if (table === 'DH') {
+    return { label: '衞生署：出生時平均預期壽命', url: 'https://data.gov.hk/tc-data/dataset/hk-dh-dh_ncddhss-ncdd-dataset-9' }
+  }
+  return { label: `統計處表 ${table}`, url: `https://www.censtatd.gov.hk/tc/web_table.html?id=${table}` }
+}
+
+/** "2025、2026" style list, collapsing runs of three or more years into a range. */
+function yearList(years: number[]): string {
+  const parts: string[] = []
+  for (let i = 0; i < years.length; ) {
+    let j = i
+    while (j + 1 < years.length && years[j + 1] === years[j] + 1) j++
+    parts.push(j - i >= 2 ? `${years[i]}–${years[j]}` : years.slice(i, j + 1).join('、'))
+    i = j + 1
+  }
+  return parts.join('、')
+}
+
+function officialNote(o: OfficialSeries): string {
+  const parts = ['官方數字']
+  if (o.provisional.length) parts.push(`${yearList(o.provisional)} 年為臨時數字`)
+  if (o.estimated.length) parts.push(`${yearList(o.estimated)} 年為估算：${o.estimateNote}`)
+  return parts.join('；')
+}
+
+function official(id: keyof typeof OFFICIAL, label: string, unit: string, source: string): Series {
+  const o: OfficialSeries = OFFICIAL[id]
+  return { label, unit, source, note: officialNote(o), values: o.values, tables: o.tables }
 }
 
 /** Builds a yearly array by linear interpolation between anchor years. */
@@ -40,36 +76,9 @@ function anchors(points: [number, number][]): number[] {
 }
 
 export const REAL = {
-  population: {
-    label: '人口',
-    unit: '萬',
-    source: '政府統計處（年中人口）',
-    note: '約數；2025–2026 年為估算',
-    values: [
-      649, 654, 661, 667, 671, 674, 673, 678, 681, 686, 692, 696, 697, 702, 707, 715, 718, 723, 729, 734, 739, 745,
-      751, 748, 741, 735, 753, 752, 753, 755,
-    ],
-  },
-  births: {
-    label: '出生',
-    unit: '萬／年',
-    source: '政府統計處',
-    note: '約數',
-    values: [
-      5.9, 5.3, 5.1, 5.4, 4.8, 4.9, 4.7, 4.9, 5.7, 6.5, 7.1, 7.8, 8.2, 8.9, 9.5, 9.1, 5.7, 6.2, 6.0, 6.1, 5.7, 5.4, 5.3,
-      4.3, 3.7, 3.3, 3.3, 3.7, 3.6, 3.5,
-    ],
-  },
-  deaths: {
-    label: '死亡',
-    unit: '萬／年',
-    source: '政府統計處',
-    note: '約數',
-    values: [
-      3.2, 3.3, 3.4, 3.4, 3.3, 3.5, 3.7, 3.7, 3.8, 3.7, 3.9, 4.1, 4.1, 4.2, 4.3, 4.4, 4.3, 4.6, 4.6, 4.7, 4.6, 4.8, 4.9,
-      5.1, 5.1, 6.2, 5.5, 5.4, 5.5, 5.6,
-    ],
-  },
+  population: official('population', '人口', '萬', '政府統計處（年中人口）'),
+  births: official('births', '出生', '萬／年', '政府統計處（按公曆年）'),
+  deaths: official('deaths', '死亡', '萬／年', '政府統計處（按公曆年）'),
   oneWayPermits: {
     label: '單程證移入',
     unit: '萬／年',
@@ -80,51 +89,14 @@ export const REAL = {
       1.9, 1.4, 1.6, 4.2, 4.5, 4.0, 4.0,
     ],
   },
-  childShare: {
-    label: '0–14 歲人口比例',
-    unit: '%',
-    source: '政府統計處',
-    note: '按人口普查年份插值的約數',
-    values: anchors([
-      [1997, 18.3],
-      [2001, 16.5],
-      [2006, 13.7],
-      [2011, 11.6],
-      [2016, 11.2],
-      [2021, 11.0],
-      [2026, 10.3],
-    ]),
-  },
-  elderlyShare: {
-    label: '65 歲或以上人口比例',
-    unit: '%',
-    source: '政府統計處',
-    note: '按人口普查年份插值的約數',
-    values: anchors([
-      [1997, 10.5],
-      [2001, 11.1],
-      [2006, 12.4],
-      [2011, 13.3],
-      [2016, 16.6],
-      [2021, 20.5],
-      [2026, 25.0],
-    ]),
-  },
-  householdSize: {
-    label: '平均住戶人數',
-    unit: '人',
-    source: '政府統計處',
-    note: '按人口普查年份插值的約數',
-    values: anchors([
-      [1997, 3.3],
-      [2001, 3.1],
-      [2006, 3.0],
-      [2011, 2.9],
-      [2016, 2.8],
-      [2021, 2.7],
-      [2026, 2.65],
-    ]),
-  },
+  childShare: official('childShare', '0–14 歲人口比例', '%', '政府統計處（年中人口）'),
+  elderlyShare: official('elderlyShare', '65 歲或以上人口比例', '%', '政府統計處（年中人口）'),
+  householdSize: official(
+    'householdSize',
+    '平均住戶人數',
+    '人',
+    '政府統計處（綜合住戶統計調查，按住戶人數分佈計算，6 人或以上按 6.5 人計，與公布的平均住戶人數一致）',
+  ),
   publicUnits: {
     label: '公營房屋單位（公屋及資助出售）',
     unit: '萬個',
@@ -165,26 +137,8 @@ export const REAL = {
       296.8, 286.1, 333.9, 377, 382, 381.1, 393.3, 370.9, 343.1, 304, 292, 300,
     ],
   },
-  unemployment: {
-    label: '失業率',
-    unit: '%',
-    source: '政府統計處（全年平均）',
-    note: '約數；2025–2026 年為估算',
-    values: [
-      2.2, 4.7, 6.2, 4.9, 5.1, 7.3, 7.9, 6.8, 5.6, 4.8, 4.0, 3.6, 5.3, 4.3, 3.4, 3.3, 3.4, 3.3, 3.3, 3.4, 3.1, 2.8, 2.9,
-      5.8, 5.2, 4.3, 2.9, 3.0, 3.7, 3.8,
-    ],
-  },
-  gdpPerCapita: {
-    label: '人均本地生產總值（當時價格）',
-    unit: '千港元',
-    source: '政府統計處',
-    note: '約數；2025–2026 年為估算',
-    values: [
-      210, 200, 195, 200, 197, 192, 187, 194, 207, 219, 239, 245, 238, 253, 274, 285, 298, 313, 329, 339, 360, 381, 380,
-      358, 387, 382, 397, 422, 441, 457,
-    ],
-  },
+  unemployment: official('unemployment', '失業率', '%', '政府統計處（全年平均）'),
+  gdpPerCapita: official('gdpPerCapita', '人均本地生產總值（當時價格）', '千港元', '政府統計處'),
   railKm: {
     label: '鐵路網絡長度',
     unit: '公里',
@@ -205,16 +159,7 @@ export const REAL = {
       23, 23,
     ],
   },
-  lifeExpectancy: {
-    label: '出生時平均預期壽命',
-    unit: '歲',
-    source: '政府統計處（男女平均）',
-    note: '2023–2024 年有報道核對，其餘為約數',
-    values: [
-      79.8, 80.1, 80.4, 80.8, 81.3, 81.4, 81.4, 81.8, 81.6, 82.4, 82.4, 82.4, 82.8, 83.0, 83.4, 83.5, 83.8, 84.0, 84.3,
-      84.2, 84.7, 84.9, 85.2, 85.4, 85.6, 84.3, 85.3, 85.6, 85.8, 85.9,
-    ],
-  },
+  lifeExpectancy: official('lifeExpectancy', '出生時平均預期壽命', '歲', '衞生署（男女平均）'),
   careCapacity: {
     label: '公營病床及資助安老宿位',
     unit: '萬個',
@@ -227,21 +172,12 @@ export const REAL = {
       [2026, 6.3],
     ]),
   },
-  postSecondary: {
-    label: '具專上教育程度人口比例（15 歲或以上）',
-    unit: '%',
-    source: '政府統計處（人口普查）',
-    note: '按人口普查年份插值的約數',
-    values: anchors([
-      [1997, 18],
-      [2001, 23],
-      [2006, 27],
-      [2011, 32],
-      [2016, 35],
-      [2021, 38],
-      [2026, 41],
-    ]),
-  },
+  postSecondary: official(
+    'postSecondary',
+    '具專上教育程度人口比例（15 歲或以上）',
+    '%',
+    '政府統計處（綜合住戶統計調查，勞動人口加非從事經濟活動人口）',
+  ),
   greenShare: {
     label: '郊野公園及保護區佔土地比例',
     unit: '%',
@@ -274,44 +210,7 @@ export const REAL = {
       4730, 4710, 5320, 6070, 8070, 6450, 7250, 6330, 6800, 7000, 7100,
     ],
   },
-  cpi: {
-    label: '物價指數',
-    unit: '1997=1',
-    source: '政府統計處（綜合消費物價指數）',
-    note: '約數',
-    values: anchors([
-      [1997, 1.0],
-      [1998, 1.03],
-      [1999, 0.99],
-      [2000, 0.95],
-      [2001, 0.93],
-      [2002, 0.9],
-      [2003, 0.88],
-      [2004, 0.88],
-      [2005, 0.89],
-      [2006, 0.91],
-      [2007, 0.93],
-      [2008, 0.97],
-      [2009, 0.98],
-      [2010, 1.0],
-      [2011, 1.05],
-      [2012, 1.09],
-      [2013, 1.13],
-      [2014, 1.18],
-      [2015, 1.21],
-      [2016, 1.24],
-      [2017, 1.26],
-      [2018, 1.29],
-      [2019, 1.33],
-      [2020, 1.33],
-      [2021, 1.36],
-      [2022, 1.39],
-      [2023, 1.42],
-      [2024, 1.45],
-      [2025, 1.47],
-      [2026, 1.49],
-    ]),
-  },
+  cpi: official('cpi', '物價指數', '1997=1', '政府統計處（綜合消費物價指數，全年平均）'),
   interestRate: {
     label: '市場利率',
     unit: '%',

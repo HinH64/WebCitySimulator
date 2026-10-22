@@ -143,15 +143,24 @@ const PAIR_TITLES: { pair: [IndicatorId, IndicatorId]; title: string }[] = [
   { pair: ['economy', 'housing'], title: '樓市與經濟並進之城' },
 ]
 
+let typical: Record<IndicatorId, number> | undefined
+
 /**
- * What a city in 2026 typically scores on each indicator (rounded from real Hong Kong). A title
- * names what stands out against these, so it describes this city's character rather than its rank.
+ * What a city in 2026 typically scores on each indicator (real Hong Kong at the end, rounded). A
+ * title names what stands out against these, so it describes this city's character rather than its rank.
  */
-const TYPICAL: Record<IndicatorId, number> = { economy: 76, housing: 48, mobility: 87, wellbeing: 47, talent: 74, environment: 70 }
+function typicalScores(): Record<IndicatorId, number> {
+  if (!typical) {
+    const real = computeIndicators(realMetricsEnd(LAST_MONTH_INDEX), REAL_STATE)
+    typical = Object.fromEntries(INDICATOR_IDS.map((k) => [k, Math.round(real[k])])) as Record<IndicatorId, number>
+  }
+  return typical
+}
 
 function cityTitle(ind: Record<IndicatorId, number>, score: number, endedEarly: boolean) {
   if (endedEarly) return { title: '財政懸崖', subtitle: '債務超過上限，任期提早結束' }
-  const diff = Object.fromEntries(INDICATOR_IDS.map((k) => [k, ind[k] - TYPICAL[k]])) as Record<IndicatorId, number>
+  const typ = typicalScores()
+  const diff = Object.fromEntries(INDICATOR_IDS.map((k) => [k, ind[k] - typ[k]])) as Record<IndicatorId, number>
   const sorted = [...INDICATOR_IDS].sort((a, b) => diff[b] - diff[a])
   const [first, second] = sorted
   const worst = sorted[sorted.length - 1]

@@ -1,20 +1,35 @@
-import { REAL } from '../data/real'
+import { RETRIEVED } from '../data/official'
+import { REAL, tableLink, type Series } from '../data/real'
 import { Dialog } from './Dialog'
 
 export function SourcesDialog({ onClose }: { onClose: () => void }) {
+  const series: [string, Series][] = Object.entries(REAL)
   return (
     <Dialog title="數據來源與模型" onClose={onClose} wide>
       <h3>數據</h3>
       <p className="warn-box small">
-        開發環境無法連上政府數據網站，以下數字是根據公開報道整理的約數，部分年份為估算，第 2 階段會以官方數據逐項核實。
+        標明「官方數字」的系列取自政府統計處和衞生署的公開數據（{RETRIEVED} 下載）。其餘仍是根據公開報道整理的約數，會逐項換成官方數據。
       </p>
       <ul className="sources">
-        {Object.entries(REAL).map(([id, s]) => (
+        {series.map(([id, s]) => (
           <li key={id}>
             <strong>
               {s.label}（{s.unit}）
             </strong>
-            <div className="small">{s.source}</div>
+            <div className="small">
+              {s.source}
+              {s.tables?.map((t) => {
+                const link = tableLink(t)
+                return (
+                  <span key={t}>
+                    {' · '}
+                    <a className="link" href={link.url} target="_blank" rel="noreferrer">
+                      {link.label}
+                    </a>
+                  </span>
+                )
+              })}
+            </div>
             <div className="muted small">{s.note}</div>
           </li>
         ))}

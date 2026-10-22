@@ -167,7 +167,7 @@ export function EndScreen({ game, onReplaySeed, onNewGame }: Props) {
             </tbody>
           </table>
         </div>
-        <p className="muted small">「你的香港」是遊戲模型的推算，不是預測。真實數字為約數，詳見數據來源。</p>
+        <p className="muted small">「你的香港」是遊戲模型的推算，不是預測。真實數字部分仍為約數，詳見數據來源。</p>
       </section>
 
       <section>
