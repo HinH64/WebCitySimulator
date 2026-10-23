@@ -95,6 +95,8 @@ export interface HistoryEvent {
   /** Where it happened, for news that opens the map; only with the main text. */
   place?: Place
   shock?: Shock
+  /** The railway line it opens (mapProjects.ts), so a city without the line reports it delayed instead. */
+  route?: string
 }
 
 export interface HistoryChoice {
@@ -222,7 +224,17 @@ export interface ChoiceRecord {
   expired: boolean
 }
 
-export type NewsKind = 'history' | 'inbox' | 'decision' | 'parallel' | 'city' | 'stats' | 'milestone' | 'report' | 'system'
+export type NewsKind = 'history' | 'inbox' | 'decision' | 'parallel' | 'city' | 'project' | 'stats' | 'milestone' | 'report' | 'system'
+
+/** Months the news first reported each step of one of the city's own works (projects.ts). */
+export interface WorkLog {
+  building?: number
+  built?: number
+  delayed?: number
+  caughtUp?: number
+  /** When real Hong Kong had the same: the homes the city built early or late, or the line. */
+  realAt?: number
+}
 
 export interface NewsItem {
   t: number
@@ -323,6 +335,8 @@ export interface GameState {
   migrationLog: number[]
   /** Highest step reached by each milestone series. */
   milestones: Record<string, number>
+  /** The city's own works the news has reported, by key (projects.ts). */
+  works: Record<string, WorkLog>
   /** The city's figures at the end of every month so far (index = month), for statistics releases. */
   statsLog: StatsPoint[]
   /** What each statistics release last reported, and when. */

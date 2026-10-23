@@ -3,7 +3,6 @@ import { MAP_CELL, MAP_COLS, MAP_ORIGIN, MAP_ROWS, MAP_TILE_KINDS } from '../dat
 import type { TileKind } from '../data/mapProjects'
 import {
   RAIL_WALK,
-  cityMapAt,
   lightRailStops,
   peoplePerCell,
   railCoverage,
@@ -12,9 +11,12 @@ import {
   regionalPrices,
   type CityMap,
   type HomeKind,
+  type RailSegment,
+  type Railway,
   type Region,
 } from '../engine/map'
 import { realMetrics } from '../engine/metrics'
+import { cityWorks } from '../engine/projects'
 import { metricsNow } from '../engine/sim'
 import { LAST_MONTH_INDEX, yearOf } from '../engine/time'
 import type { GameState, Place } from '../engine/types'
@@ -144,7 +146,14 @@ interface DrawOptions {
   sea?: [number, number, number]
   /** A place the news pointed to, ringed on top of everything. */
   marker?: Place | null
+  /** Lines under construction, drawn dashed. */
+  railBuilding?: Railway
+  /** The city's own developments and lines, outlined. */
+  outline?: { cells: number[]; rail: Railway } | null
 }
+
+/** Colour of the outline around the city's own developments. */
+export const MINE_COLOUR = '#d6336c'
 
 /** Draws the layer bitmap, haze, flashing cells, railway and stations (names once zoomed in). */
 export function drawMap(canvas: HTMLCanvasElement, o: DrawOptions) {
@@ -167,6 +176,14 @@ export function drawMap(canvas: HTMLCanvasElement, o: DrawOptions) {
   const X = (e: number) => ox + ((e - MAP_ORIGIN.e) / MAP_CELL) * cellPx
   const Y = (n: number) => oy + ((MAP_ORIGIN.n - n) / MAP_CELL) * cellPx
 
+  if (o.outline) {
+    ctx.strokeStyle = MINE_COLOUR
+    ctx.lineWidth = Math.max(1.5 * dpr, cellPx * 0.15)
+    for (const c of o.outline.cells) {
+      ctx.strokeRect(ox + (c % MAP_COLS) * cellPx + 0.5, oy + Math.floor(c / MAP_COLS) * cellPx + 0.5, cellPx - 1, cellPx - 1)
+    }
+  }
+
   for (const c of o.flash) {
     ctx.strokeStyle = '#ffd400'
     ctx.lineWidth = Math.max(1, dpr)
@@ -175,15 +192,32 @@ export function drawMap(canvas: HTMLCanvasElement, o: DrawOptions) {
 
   const lw = Math.min(4 * dpr, Math.max(1.5 * dpr, cellPx * 0.3))
   ctx.lineCap = 'round'
-  for (const [colour, width] of [['rgba(255,255,255,0.9)', lw + 2 * dpr], ['#3d3d3d', lw]] as const) {
-    ctx.strokeStyle = colour
-    ctx.lineWidth = width
+  const stroke = (segments: RailSegment[]) => {
     ctx.beginPath()
-    for (const s of map.rail.segments) {
+    for (const s of segments) {
       ctx.moveTo(X(s.from[0]), Y(s.from[1]))
       ctx.lineTo(X(s.to[0]), Y(s.to[1]))
     }
     ctx.stroke()
+  }
+  if (o.outline?.rail.segments.length) {
+    ctx.strokeStyle = MINE_COLOUR
+    ctx.lineWidth = lw + 5 * dpr
+    stroke(o.outline.rail.segments)
+  }
+  if (o.railBuilding?.segments.length) {
+    ctx.setLineDash([3 * lw, 2 * lw])
+    for (const [colour, width] of [['rgba(255,255,255,0.9)', lw + 2 * dpr], ['#3d3d3d', lw]] as const) {
+      ctx.strokeStyle = colour
+      ctx.lineWidth = width
+      stroke(o.railBuilding.segments)
+    }
+    ctx.setLineDash([])
+  }
+  for (const [colour, width] of [['rgba(255,255,255,0.9)', lw + 2 * dpr], ['#3d3d3d', lw]] as const) {
+    ctx.strokeStyle = colour
+    ctx.lineWidth = width
+    stroke(map.rail.segments)
   }
   const r = Math.min(5 * dpr, Math.max(2 * dpr, cellPx * 0.4))
   ctx.fillStyle = '#3d7a4a'
@@ -307,6 +341,7 @@ interface MapViewProps {
 
 export function MapView({ game, focus, onFocused }: MapViewProps) {
   const [layer, setLayer] = useState<MapLayer>(() => loadMapPrefs().layer)
+  const [mine, setMine] = useState(() => loadMapPrefs().mine)
   const [view, setView] = useState<View>(FULL)
   const [flash, setFlash] = useState<number[]>([])
   const [marker, setMarker] = useState<Place | null>(null)
@@ -319,8 +354,10 @@ export function MapView({ game, focus, onFocused }: MapViewProps) {
 
   const t = Math.min(game.status === 'ended' ? game.t - 1 : game.t, LAST_MONTH_INDEX)
   const quarter = Math.floor(t / 3)
-  // The map changes slowly; redraw it every three months rather than every tick.
-  const map = useMemo(() => cityMapAt(game), [game, quarter, game.status])
+  // The map changes slowly; redraw it every three months rather than every tick. Work under
+  // construction shows as building sites, and lines under construction dashed.
+  const works = useMemo(() => cityWorks(game), [game, quarter, game.status])
+  const map = works.map
 
   const data = useMemo<LayerData>(() => {
     const m = metricsNow(game)
@@ -392,8 +429,10 @@ export function MapView({ game, focus, onFocused }: MapViewProps) {
 
   useEffect(() => {
     const canvas = canvasRef.current
-    if (canvas && bitmap && W > 0) drawMap(canvas, { bitmap, map, t, W, H, cellPx, cx: v.cx, cy: v.cy, flash, dpr, marker })
-  }, [bitmap, map, flash, W, H, cellPx, v.cx, v.cy, dpr, t, marker])
+    if (!canvas || !bitmap || W === 0) return
+    const outline = mine ? { cells: works.extraCells, rail: works.extraRail } : null
+    drawMap(canvas, { bitmap, map, t, W, H, cellPx, cx: v.cx, cy: v.cy, flash, dpr, marker, railBuilding: works.railBuilding, outline })
+  }, [bitmap, map, works, mine, flash, W, H, cellPx, v.cx, v.cy, dpr, t, marker])
 
   // Ctrl or Cmd with the wheel zooms; a plain wheel keeps scrolling the page.
   useEffect(() => {
@@ -466,16 +505,29 @@ export function MapView({ game, focus, onFocused }: MapViewProps) {
     saveMapPrefs({ ...loadMapPrefs(), layer: id })
   }
 
+  const toggleMine = () => {
+    setMine(!mine)
+    saveMapPrefs({ ...loadMapPrefs(), mine: !mine })
+  }
+  const building = works.works.filter((w) => w.state === 'building').length
+
   const coarse = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches
 
   return (
     <div className="map-view">
-      <div className="segmented small-seg" role="group" aria-label="圖層">
-        {LAYERS.map((l) => (
-          <button key={l.id} className={layer === l.id ? 'active' : ''} aria-pressed={layer === l.id} onClick={() => chooseLayer(l.id)}>
-            {l.label}
+      <div className="map-tools">
+        <div className="segmented small-seg" role="group" aria-label="圖層">
+          {LAYERS.map((l) => (
+            <button key={l.id} className={layer === l.id ? 'active' : ''} aria-pressed={layer === l.id} onClick={() => chooseLayer(l.id)}>
+              {l.label}
+            </button>
+          ))}
+        </div>
+        <div className="segmented small-seg">
+          <button className={mine ? 'active mine-toggle' : 'mine-toggle'} aria-pressed={mine} onClick={toggleMine}>
+            你的發展
           </button>
-        ))}
+        </div>
       </div>
       <div className="map-frame" ref={frameRef} style={{ height: size.h || undefined }}>
         <canvas
@@ -506,6 +558,14 @@ export function MapView({ game, focus, onFocused }: MapViewProps) {
         </div>
       </div>
       <Legend layer={layer} data={data} />
+      {mine && (
+        <p className="map-note">
+          <span className="swatch-line" style={{ borderColor: MINE_COLOUR }} />
+          框出的是你的撥款和政策帶來的新發展，包括施工中的工地和鐵路。
+          {works.extraCells.length === 0 && works.extraRail.segments.length === 0 && '暫時沒有。'}
+        </p>
+      )}
+      {building > 0 && <p className="map-note">「建造中」的格子和虛線鐵路是正在施工的工程，預算面板有詳情。</p>}
       <p className="map-note">{coarse ? '拖動移動，兩指縮放。' : '拖動移動；按 ＋／−、雙擊或 Ctrl＋滾輪縮放。'}新落成的地方會閃一下。</p>
     </div>
   )

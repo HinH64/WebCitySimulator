@@ -139,12 +139,12 @@ export function stationPosition(name: string): [number, number] {
   return p
 }
 
-interface Route {
+export interface Route {
   id: string
   stations: MapStationPoint[]
 }
 
-const asRoute = (r: { id: string; stations: (string | MapStationPoint)[] }): Route => ({
+export const asRoute = (r: { id: string; stations: (string | MapStationPoint)[] }): Route => ({
   id: r.id,
   stations: r.stations.map((s) => {
     if (typeof s !== 'string') return s
@@ -153,7 +153,7 @@ const asRoute = (r: { id: string; stations: (string | MapStationPoint)[] }): Rou
   }),
 })
 
-function railway(routes: Route[]): Railway {
+export function railway(routes: Route[]): Railway {
   const segments: RailSegment[] = []
   const stations = new Map<string, MapStationPoint>()
   for (const r of routes) {
@@ -175,13 +175,27 @@ export function realRailAt(t: number): Railway {
 
 const routeKm = (r: Route) => r.stations.reduce((a, s, i) => (i ? a + Math.hypot(s.e - r.stations[i - 1].e, s.n - r.stations[i - 1].n) : a), 0) / 1000
 
+export interface CityRail {
+  /** Lines open in the city. */
+  open: Route[]
+  /** Lines open beyond history: later real lines opened early, then proposed ones. */
+  added: string[]
+  /** Real lines the city has not opened. */
+  missing: string[]
+}
+
+/** Only real lines opened this recently can be missing: older ones the city would long have finished. */
+export const RAIL_LAG = 60
+
 /**
  * The city's railway: real lines, with later real lines opening early and then proposed ones while the
- * city has more track than history, or the newest lines missing while it has less. A line counts once the
- * gap covers half of it.
+ * city has more track than history, or the newest lines (of the last RAIL_LAG months) missing while it
+ * has less. A line counts once the gap covers half of it.
  */
-function cityRail(gapKm: number, t: number): Railway {
+export function cityRail(gapKm: number, t: number): CityRail {
   const open = RAIL_ROUTES.filter((r) => isOpen(r, t)).map(asRoute)
+  const added: string[] = []
+  const missing: string[] = []
   const extendable = (r: (typeof RAIL_ROUTES)[number]) => r.stations.length > 1 && !r.closed
   if (gapKm > 0) {
     const later = [
@@ -192,10 +206,11 @@ function cityRail(gapKm: number, t: number): Railway {
       const km = routeKm(r)
       if (gapKm < km / 2) break
       open.push(r)
+      added.push(r.id)
       gapKm -= km
     }
   } else if (gapKm < 0) {
-    const newest = RAIL_ROUTES.filter((r) => isOpen(r, t) && monthIndex(...r.opened) >= 0 && extendable(r)).reverse()
+    const newest = RAIL_ROUTES.filter((r) => isOpen(r, t) && monthIndex(...r.opened) >= Math.max(0, t - RAIL_LAG) && extendable(r)).reverse()
     for (const r of newest) {
       const km = routeKm(asRoute(r))
       if (-gapKm < km / 2) break
@@ -203,10 +218,11 @@ function cityRail(gapKm: number, t: number): Railway {
         open.findIndex((o) => o.id === r.id),
         1,
       )
+      missing.push(r.id)
       gapKm += km
     }
   }
-  return railway(open)
+  return { open, added, missing }
 }
 
 // ---- The city's map ----
@@ -222,6 +238,8 @@ interface HousingCell {
   month: number
   /** Kind index just before. */
   before: number
+  /** The post-1997 project it belongs to. */
+  project: string
 }
 
 const housingOrderCache = new Map<Housing, HousingCell[]>()
@@ -240,7 +258,7 @@ function realHousingOrder(kind: Housing): HousingCell[] {
         for (const s of p.steps) {
           if (idx >= Math.round(s.share * cells.length)) continue
           if (s.kind === 'base') {
-            order!.push({ cell, month: monthIndex(...s.from), before: current })
+            order!.push({ cell, month: monthIndex(...s.from), before: current, project: p.id })
             return
           }
           current = KIND_INDEX[s.kind]
@@ -255,8 +273,16 @@ function realHousingOrder(kind: Housing): HousingCell[] {
 
 let unitsCache: Record<Housing, number> | undefined
 
+let homesMonth: Map<number, number> | undefined
+
+/** Month real Hong Kong finished the homes on a cell, for cells built after July 1997. */
+export function realHomesMonth(cell: number): number | undefined {
+  homesMonth ??= new Map([...realHousingOrder('public'), ...realHousingOrder('private')].map((h) => [h.cell, h.month]))
+  return homesMonth.get(cell)
+}
+
 /** Homes per cell (萬), from 2025's stock and the cells of each kind on the 2025 map. */
-function unitsPerCell(kind: Housing): number {
+export function unitsPerCell(kind: Housing): number {
   if (!unitsCache) {
     const grid = baseMap()
     const cells = (k: Housing) => grid.filter((v) => v === KIND_INDEX[k]).length
@@ -269,22 +295,37 @@ let landCells: number | undefined
 
 const siteCellCache = new Map<string, number[]>()
 
-/** Cells of the candidate sites ready by month t, earliest site first. */
-function sitePool(t: number, keep: (s: CandidateSite) => boolean, taken: Set<number>): number[] {
+/** Cells of a candidate site, nearest its centre first. */
+export function siteCells(site: CandidateSite): number[] {
+  let cells = siteCellCache.get(site.id)
+  if (!cells) {
+    cells = areaCells(site.area)
+    siteCellCache.set(site.id, cells)
+  }
+  return cells
+}
+
+/** Cells of the candidate sites ready by month t, earliest site first, each with the development it belongs to. */
+function sitePool(t: number, keep: (s: CandidateSite) => boolean, taken: Set<number>): { cell: number; owner: string }[] {
   const sites = CANDIDATE_SITES.filter((s) => keep(s) && monthIndex(...s.earliest) <= t).sort(
     (a, b) => monthIndex(...a.earliest) - monthIndex(...b.earliest),
   )
-  const pool: number[] = []
+  const pool: { cell: number; owner: string }[] = []
+  const seen = new Set<number>()
   for (const s of sites) {
-    let cells = siteCellCache.get(s.id)
-    if (!cells) {
-      cells = areaCells(s.area)
-      siteCellCache.set(s.id, cells)
+    for (const c of siteCells(s)) {
+      if (taken.has(c) || seen.has(c)) continue
+      seen.add(c)
+      pool.push({ cell: c, owner: siteKey(s.id) })
     }
-    for (const c of cells) if (!taken.has(c) && !pool.includes(c)) pool.push(c)
   }
   return pool
 }
+
+/** Keys of the developments map changes belong to: a candidate site, a real post-1997 project, or a railway line. */
+export const siteKey = (id: string) => `site:${id}`
+export const areaKey = (id: string) => `area:${id}`
+export const railKey = (id: string) => `rail:${id}`
 
 const SECTOR_KIND: Record<Exclude<CandidateSite['use'], 'housing'>, TileKind[]> = {
   finance: ['commercial'],
@@ -314,9 +355,25 @@ export function cityMapAt(s: GameState): CityMap {
   return cityMapFrom(computeMetrics(s, t), t, s.t)
 }
 
+/** A change the city makes to real Hong Kong's map, and the development it belongs to (siteKey or areaKey). */
+export interface CellChange {
+  cell: number
+  /** Kind index the cell has in the city. */
+  kind: number
+  owner: string
+}
+
+/** How the city's map differs from real Hong Kong's at the same month. */
+export interface CityChanges {
+  /** Cells the city has developed beyond history: homes, industry, country park edge land being cleared. */
+  added: CellChange[]
+  /** Real homes the city has not built; `kind` is what the cell still is. */
+  removed: CellChange[]
+  rail: CityRail
+}
+
 /**
- * The city's map from its figures at month t (now, or a yearly snapshot): real Hong Kong's map at the
- * same month, changed where the city differs.
+ * Where the city's figures at month t (now, or a yearly snapshot) differ from real Hong Kong's on the map.
  * - Homes: extra public and private homes go first on country park edge land the city gave up, then on
  *   sites real Hong Kong developed later, then on candidate sites. Missing homes take the newest real
  *   estates off the map.
@@ -327,19 +384,21 @@ export function cityMapAt(s: GameState): CityMap {
  * `sectorMonth` is the month whose real industry mix `m.sectors` matches: the current month for a city in
  * play, the next one for a yearly snapshot, which records the mix after the month's growth.
  */
-export function cityMapFrom(m: Metrics, t: number, sectorMonth = t): CityMap {
-  const grid = realMapAt(t)
+export function cityChanges(m: Metrics, t: number, sectorMonth = t): CityChanges {
   const real = realMetrics(t)
+  // Keyed by cell: a cell cleared on a country park edge can then take homes.
+  const added = new Map<number, CellChange>()
+  const removed: CellChange[] = []
   const taken = new Set<number>()
-  const put = (cell: number, kind: TileKind) => {
-    grid[cell] = KIND_INDEX[kind]
+  const put = (cell: number, kind: TileKind, owner: string) => {
+    added.set(cell, { cell, kind: KIND_INDEX[kind], owner })
     taken.add(cell)
   }
 
   landCells ??= baseMap().filter((v) => v !== KIND_INDEX.sea).length
   const greenGap = m.green - real.green
   const parkEdge = greenGap < 0 ? sitePool(t, (site) => Boolean(site.countryPark), taken).slice(0, Math.round((-greenGap / 100) * landCells)) : []
-  parkEdge.forEach((c) => put(c, 'construction'))
+  parkEdge.forEach((c) => put(c.cell, 'construction', c.owner))
 
   const shares = realSectors(sectorMonth)
   for (const use of ['finance', 'trade', 'tourism', 'professional'] as const) {
@@ -347,24 +406,26 @@ export function cityMapFrom(m: Metrics, t: number, sectorMonth = t): CityMap {
     if (ahead <= 0) continue
     const pool = sitePool(t, (site) => site.use === use, taken)
     const kinds = SECTOR_KIND[use]
-    pool.slice(0, Math.round(Math.min(1, ahead / SECTOR_FULL) * pool.length)).forEach((c, i) => put(c, kinds[i % kinds.length]))
+    pool.slice(0, Math.round(Math.min(1, ahead / SECTOR_FULL) * pool.length)).forEach((c, i) => put(c.cell, kinds[i % kinds.length], c.owner))
   }
 
   const need: Record<Housing, number> = { public: 0, private: 0 }
   for (const kind of ['public', 'private'] as const) {
     const gap = Math.round((m[kind === 'public' ? 'publicUnits' : 'privateUnits'] - real[kind === 'public' ? 'publicUnits' : 'privateUnits']) / unitsPerCell(kind))
     if (gap > 0) need[kind] = gap
-    else if (gap < 0) for (const h of realHousingOrder(kind).filter((h) => h.month <= t).slice(gap)) grid[h.cell] = h.before
+    else if (gap < 0) {
+      for (const h of realHousingOrder(kind).filter((h) => h.month <= t).slice(gap)) removed.push({ cell: h.cell, kind: h.before, owner: areaKey(h.project) })
+    }
   }
   /** Fills cells with public and private homes in proportion to what each still needs. */
-  const fill = (pool: number[]) => {
+  const fill = (pool: { cell: number; owner: string }[]) => {
     const total = need.public + need.private
     const n = Math.min(pool.length, total)
     let pub = 0
     for (let k = 0; k < n; k++) {
       const isPublic = Math.floor(((k + 1) * need.public) / total) > Math.floor((k * need.public) / total)
       if (isPublic) pub++
-      put(pool[k], isPublic ? 'public' : 'private')
+      put(pool[k].cell, isPublic ? 'public' : 'private', pool[k].owner)
     }
     need.public -= pub
     need.private -= n - pub
@@ -372,12 +433,25 @@ export function cityMapFrom(m: Metrics, t: number, sectorMonth = t): CityMap {
   fill(parkEdge)
   for (const kind of ['public', 'private'] as const) {
     const later = realHousingOrder(kind).filter((h) => h.month > t && !taken.has(h.cell))
-    for (const h of later.slice(0, need[kind])) put(h.cell, kind)
+    for (const h of later.slice(0, need[kind])) put(h.cell, kind, areaKey(h.project))
     need[kind] -= Math.min(need[kind], later.length)
   }
   fill(sitePool(t, (site) => site.use === 'housing' && !site.countryPark, taken))
 
-  return { grid, rail: cityRail(m.railKm - real.railKm, t), haze: hazeOf(m.pm10) }
+  return { added: [...added.values()], removed, rail: cityRail(m.railKm - real.railKm, t) }
+}
+
+/** Real Hong Kong's map at month t with the city's changes. */
+export function mapWithChanges(changes: CityChanges, t: number, pm10: number): CityMap {
+  const grid = realMapAt(t)
+  for (const c of changes.removed) grid[c.cell] = c.kind
+  for (const c of changes.added) grid[c.cell] = c.kind
+  return { grid, rail: railway(changes.rail.open), haze: hazeOf(pm10) }
+}
+
+/** The city's map from its figures at month t: real Hong Kong's map at the same month, changed where the city differs. */
+export function cityMapFrom(m: Metrics, t: number, sectorMonth = t): CityMap {
+  return mapWithChanges(cityChanges(m, t, sectorMonth), t, m.pm10)
 }
 
 // ---- Layers ----

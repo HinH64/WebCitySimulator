@@ -37,6 +37,8 @@ export interface MapProject {
   steps: ProjectStep[]
   /** Where development began; cells nearer to it change first. Defaults to the area's centre. */
   start?: [number, number]
+  /** Name for news about its homes, when `name` is about something else. */
+  homesName?: string
   source: string
 }
 
@@ -158,6 +160,7 @@ export const MAP_PROJECTS: MapProject[] = [
   {
     id: 'pakShekKok',
     name: '白石角科學園',
+    homesName: '白石角',
     area: { polygon: [[838300, 830700], [841800, 830700], [841800, 832800], [838300, 832800]], kinds: ['sciencePark', 'private', 'construction', 'park', 'road', 'commercial'] },
     before: 'construction',
     steps: [step(2001, 6, 'base', 0.3), step(2004, 1, 'base', 0.5), step(2009, 1, 'base', 0.75), step(2016, 1, 'base')],
@@ -184,6 +187,7 @@ export const MAP_PROJECTS: MapProject[] = [
   {
     id: 'cyberport',
     name: '數碼港',
+    homesName: '數碼港貝沙灣',
     area: { polygon: [[830600, 812800], [832000, 812800], [832000, 814200], [830600, 814200]], kinds: ['commercial', 'sciencePark', 'private', 'park', 'otherUrban'] },
     before: 'construction',
     steps: [step(2002, 1, 'base', 0.5), step(2004, 1, 'base')],

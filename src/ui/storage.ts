@@ -91,6 +91,8 @@ export interface MapPrefs {
   /** Whether the map card is open above the news (wide screens). */
   open: boolean
   layer: MapLayer
+  /** Outline the city's own developments. */
+  mine: boolean
 }
 
 const MAP_KEY = 'parallel-hk.map.v1'
@@ -101,6 +103,7 @@ export function loadMapPrefs(): MapPrefs {
   return {
     open: typeof p?.open === 'boolean' ? p.open : true,
     layer: p && MAP_LAYERS.includes(p.layer as MapLayer) ? (p.layer as MapLayer) : 'land',
+    mine: typeof p?.mine === 'boolean' ? p.mine : false,
   }
 }
 

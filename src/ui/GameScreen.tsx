@@ -375,7 +375,7 @@ export function GameScreen({ game, initialSpeed, settings, onSettings, onEnd, on
             </div>
             <div className="side-body">
               {shown === 'map' && <MapView game={game} focus={mapFocus} onFocused={mapFocused} />}
-              {shown === 'budget' && <BudgetPanel game={game} metrics={m} onChange={bump} />}
+              {shown === 'budget' && <BudgetPanel game={game} metrics={m} onChange={bump} onPlace={showPlace} />}
               {shown === 'demand' && <DemandPanel rows={view.rows} focus={focusRow} />}
               {shown === 'population' && <PopulationPanel game={game} metrics={m} />}
               {shown === 'tax' && <TaxPanel game={game} onChange={bump} />}

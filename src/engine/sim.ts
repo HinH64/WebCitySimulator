@@ -5,7 +5,9 @@ import { POLICIES, POLICY_BY_ID, type PolicyDef, type PolicyEffect } from '../da
 import { yearValue } from '../data/real'
 import { APPROVAL, grievances, newApproval, noteAnswer, updateApproval } from './approval'
 import { computeIndicators } from './indicators'
+import { cityRail, railKey } from './map'
 import { attractiveness, clamp, computeMetrics, fullQuality, realMetrics, zeroDeviations } from './metrics'
+import { WORKS_EVERY, reportMissingLine, reportWorks } from './projects'
 import {
   cpiAt,
   levelAt,
@@ -168,6 +170,7 @@ export function newGame(seed: number, options: Partial<GameOptions> = {}): GameS
     cooldowns: {},
     migrationLog: [],
     milestones: {},
+    works: {},
     statsLog: [],
     releases: {},
     news: [],
@@ -673,6 +676,14 @@ export function step(s: GameState) {
     if (ev.year !== year || ev.month !== month) continue
     const shown = historyEventText(s, ev, t)
     if (!shown) continue
+    if (shown.main && ev.route) {
+      // The city opened the line early (already in the news), or has not built it.
+      if (s.works[railKey(ev.route)]?.built !== undefined) continue
+      if (cityRail(m.railKm - real.railKm, t).missing.includes(ev.route)) {
+        reportMissingLine(s, ev.route, t)
+        continue
+      }
+    }
     let text = shown.text
     if (ev.shock && shown.main) {
       const input = { m, real, quality: s.quality, flags: s.flags, netReserves: s.reserves - debt, monthlySpending: spendingTotal }
@@ -689,6 +700,8 @@ export function step(s: GameState) {
   for (const item of s.inbox.filter((i) => i.deadline <= t)) answer(s, item.uid, item.defaultOptionId, true)
 
   checkMilestones(s, m)
+  // On the months the map redraws, so the news and the map agree.
+  if ((t + 1) % WORKS_EVERY === 0) reportWorks(s, m, t)
   publishReleases(s, m)
   if (s.options.events) {
     const ctx: CityContext = {

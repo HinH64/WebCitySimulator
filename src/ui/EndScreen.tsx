@@ -6,6 +6,7 @@ import { INDICATOR_IDS, type GameState } from '../engine/types'
 import { formatNumber, percent } from './format'
 import { MapCompare } from './MapCompare'
 import { TrendChart } from './TrendChart'
+import { WorksList } from './WorksList'
 
 interface Props {
   game: GameState
@@ -49,6 +50,8 @@ export function EndScreen({ game, onReplaySeed, onNewGame }: Props) {
         <h2 className="section-title">地圖：你的香港 vs 真實香港</h2>
         <MapCompare game={game} endT={r.endT} />
       </section>
+
+      <WorksList game={game} />
 
       <section>
         <h2 className="section-title">你的香港 vs 真實香港</h2>

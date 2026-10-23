@@ -13,7 +13,7 @@ export const HISTORY_EVENTS: HistoryEvent[] = [
     shock: { kind: 'financial', size: 1 },
   },
   { id: 'birdflu', year: 1997, month: 12, text: '香港發現 H5N1 禽流感病毒，政府撲殺全港約 130 萬隻雞。' },
-  { id: 'tcl', year: 1998, month: 6, text: '東涌綫及機場快綫通車。', place: PLACES.tungChung },
+  { id: 'tcl', year: 1998, month: 6, text: '東涌綫及機場快綫通車。', place: PLACES.tungChung, route: 'tungChung' },
   { id: 'airport', year: 1998, month: 7, text: '赤鱲角新機場啟用，啟德機場關閉。', place: PLACES.airport },
   { id: 'cyberport', year: 1999, month: 3, text: '財政預算案公布數碼港計劃，在薄扶林鋼綫灣興建資訊科技園區。', place: PLACES.cyberport },
   {
@@ -26,7 +26,7 @@ export const HISTORY_EVENTS: HistoryEvent[] = [
   { id: 'dotcom', year: 2000, month: 4, text: '科網股泡沫在全球爆破，股市由高位回落。' },
   { id: 'mpf', year: 2000, month: 12, text: '強制性公積金（強積金）制度實施，僱主和僱員每月各按入息供款 5%。' },
   { id: 'sep11', year: 2001, month: 9, text: '美國發生九一一事件，環球經濟放緩。' },
-  { id: 'tkol', year: 2002, month: 8, text: '將軍澳綫通車。', place: PLACES.tseungKwanO },
+  { id: 'tkol', year: 2002, month: 8, text: '將軍澳綫通車。', place: PLACES.tseungKwanO, route: 'tseungKwanO' },
   {
     id: 'sars',
     year: 2003,
@@ -35,9 +35,9 @@ export const HISTORY_EVENTS: HistoryEvent[] = [
     shock: { kind: 'epidemic', size: 1 },
   },
   { id: 'ivs', year: 2003, month: 7, text: '內地旅客「個人遊」計劃開始，訪港旅客急增。' },
-  { id: 'westrail', year: 2003, month: 12, text: '西鐵通車，連接屯門、元朗與市區。', place: PLACES.tinShuiWai },
+  { id: 'westrail', year: 2003, month: 12, text: '西鐵通車，連接屯門、元朗與市區。', place: PLACES.tinShuiWai, route: 'westRail' },
   { id: 'cepa', year: 2004, month: 1, text: '《內地與香港關於建立更緊密經貿關係的安排》（CEPA）生效，香港產品可以零關稅進入內地。' },
-  { id: 'mosl', year: 2004, month: 12, text: '馬鞍山鐵路通車。', place: PLACES.maOnShan },
+  { id: 'mosl', year: 2004, month: 12, text: '馬鞍山鐵路通車。', place: PLACES.maOnShan, route: 'maOnShan' },
   {
     id: 'disneyOpen',
     year: 2005,
@@ -48,7 +48,7 @@ export const HISTORY_EVENTS: HistoryEvent[] = [
     place: PLACES.disneyland,
   },
   { id: 'ngongPing', year: 2006, month: 9, text: '昂坪 360 纜車啟用，由東涌直達大嶼山昂坪。', place: PLACES.ngongPing },
-  { id: 'lmc', year: 2007, month: 8, text: '落馬洲支綫通車，往來內地多了一個鐵路口岸。', place: PLACES.lokMaChau },
+  { id: 'lmc', year: 2007, month: 8, text: '落馬洲支綫通車，往來內地多了一個鐵路口岸。', place: PLACES.lokMaChau, route: 'lokMaChau' },
   { id: 'merger', year: 2007, month: 12, text: '地鐵與九廣鐵路合併。' },
   { id: 'equestrian', year: 2008, month: 8, text: '北京奧運會的馬術比賽在香港沙田舉行。', place: PLACES.shaTinRacecourse },
   {
@@ -59,7 +59,7 @@ export const HISTORY_EVENTS: HistoryEvent[] = [
     shock: { kind: 'financial', size: 1.5 },
   },
   { id: 'h1n1', year: 2009, month: 5, text: '香港出現首宗人類豬型流感個案。' },
-  { id: 'ksl', year: 2009, month: 8, text: '九龍南綫通車，東鐵綫與西鐵綫接通。', place: PLACES.austin },
+  { id: 'ksl', year: 2009, month: 8, text: '九龍南綫通車，東鐵綫與西鐵綫接通。', place: PLACES.austin, route: 'kowloonSouthern' },
   {
     id: 'maTauWai',
     year: 2010,
@@ -90,7 +90,7 @@ export const HISTORY_EVENTS: HistoryEvent[] = [
     text: '新高中學制的首屆文憑試考生和最後一屆高級程度會考考生同年升讀大學，四年制學士課程開始。',
   },
   { id: 'povertyLine', year: 2013, month: 9, text: '政府公布首條官方貧窮綫。' },
-  { id: 'wil', year: 2014, month: 12, text: '西港島綫通車。', place: PLACES.hku },
+  { id: 'wil', year: 2014, month: 12, text: '西港島綫通車。', place: PLACES.hku, route: 'islandWest' },
   {
     id: 'leadWater',
     year: 2015,
@@ -98,8 +98,8 @@ export const HISTORY_EVENTS: HistoryEvent[] = [
     text: '啟德啟晴邨的食水驗出含鉛量超標，其後多個公共屋邨都發現同樣問題。',
     place: PLACES.kaiChing,
   },
-  { id: 'ktle', year: 2016, month: 10, text: '觀塘綫延綫通車。', place: PLACES.hoManTin },
-  { id: 'sil', year: 2016, month: 12, text: '南港島綫通車。', place: PLACES.wongChukHang },
+  { id: 'ktle', year: 2016, month: 10, text: '觀塘綫延綫通車。', place: PLACES.hoManTin, route: 'kwunTongExtension' },
+  { id: 'sil', year: 2016, month: 12, text: '南港島綫通車。', place: PLACES.wongChukHang, route: 'southIsland' },
   { id: 'hato', year: 2017, month: 8, text: '超強颱風天鴿襲港，天文台發出十號颶風信號。', shock: { kind: 'storm', size: 1 } },
   { id: 'kgStart', year: 2017, month: 9, text: '免費優質幼稚園教育政策開始，合資格幼稚園的半日制課程免費。', requires: { freeKG: ['free'] } },
   {
@@ -144,6 +144,7 @@ export const HISTORY_EVENTS: HistoryEvent[] = [
     requires: { tenProjects: ['all', 'some'] },
     altText: '沙中綫沒有興建，東西兩邊的鐵路仍未接通。',
     place: PLACES.kaiTak,
+    route: 'tuenMa1',
   },
   { id: 'vaccine', year: 2021, month: 2, text: '新冠疫苗接種計劃展開，市民可以免費接種。' },
   {
@@ -153,6 +154,7 @@ export const HISTORY_EVENTS: HistoryEvent[] = [
     text: '屯馬綫全綫通車，成為港鐵最長的路綫。',
     requires: { tenProjects: ['all', 'some'] },
     place: PLACES.sungWongToi,
+    route: 'tuenMa',
   },
   { id: 'wave5', year: 2022, month: 2, text: '第五波新冠疫情爆發，單日確診數以萬計。', shock: { kind: 'epidemic', size: 1 } },
   {
@@ -162,6 +164,7 @@ export const HISTORY_EVENTS: HistoryEvent[] = [
     text: '東鐵綫過海段通車，東鐵綫延伸至金鐘。',
     requires: { tenProjects: ['all', 'some'] },
     place: PLACES.exhibitionCentre,
+    route: 'eastRailHarbour',
   },
   { id: 'reopen', year: 2023, month: 2, text: '與內地全面恢復通關。' },
   {

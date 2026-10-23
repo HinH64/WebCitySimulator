@@ -8,6 +8,7 @@ const KIND_TAG: Partial<Record<NewsItem['kind'], string>> = {
   inbox: '新抉擇',
   decision: '決定',
   parallel: '城市動態',
+  project: '工程',
   stats: '統計數字',
   milestone: '里程碑',
   report: '年度報告',
@@ -52,7 +53,7 @@ function NewsFeedView({ news, onPlace }: Props) {
                     {tag && <span className={`tag tag-${n.kind}`}>{tag}</span>}
                     {n.text}
                     {place && (
-                      <button className="news-place" onClick={() => onPlace(place)} aria-label="在地圖上顯示這則新聞的位置">
+                      <button className="place-button" onClick={() => onPlace(place)} aria-label="在地圖上顯示這則新聞的位置">
                         地圖
                       </button>
                     )}

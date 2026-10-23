@@ -506,6 +506,8 @@ input[type='range'] {
 .dept-head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.75rem; }
 .dept-value { font-size: 1.05rem; font-weight: 600; font-variant-numeric: tabular-nums; }
 .dept-foot { display: flex; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; }
+.dept-lines { list-style: none; margin: 0.2rem 0 0; padding: 0; display: grid; gap: 0.15rem; }
+.dept-lines .muted { color: var(--ink-2); }
 .fixed-lines { margin-top: 0.75rem; border-top: 1px solid var(--line); padding-top: 0.5rem; display: grid; gap: 0.2rem; }
 .fixed-lines div { display: flex; justify-content: space-between; gap: 1rem; }
 .breakdown { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.3rem; }
@@ -579,6 +581,9 @@ input[type='range'] {
 .map-head { display: flex; align-items: center; gap: 0.5rem; }
 .map-head .card-title { margin: 0; }
 .map-toggle { margin-left: auto; }
+.map-tools { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.35rem 0.75rem; }
+.segmented.small-seg button.mine-toggle.active { border-color: #d6336c; box-shadow: inset 0 0 0 1px #d6336c; }
+.swatch-line { display: inline-block; width: 0.8rem; height: 0.8rem; margin-right: 0.3rem; vertical-align: -0.1rem; border: 2px solid; border-radius: 2px; }
 .map-view { display: grid; gap: 0.5rem; margin-top: 0.5rem; min-width: 0; }
 .side-body .map-view { margin-top: 0; }
 .map-frame { position: relative; overflow: hidden; border-radius: var(--radius-sm); background: var(--map-sea); }
@@ -618,7 +623,10 @@ input[type='range'] {
 .news-item.kind-system .news-body { font-weight: 700; }
 .news-item.tone-bad.kind-parallel .news-body { border-left-color: var(--bad); }
 .news-item.tone-good.kind-parallel .news-body { border-left-color: var(--good); }
-.news-place {
+.news-item.kind-project .news-body { border-left: 3px solid var(--accent); padding-left: 0.5rem; }
+.news-item.tone-bad.kind-project .news-body { border-left-color: var(--bad); }
+.tag-project { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
+.place-button {
   margin-left: 0.4rem;
   padding: 0 0.4rem;
   font: inherit;
@@ -633,7 +641,7 @@ input[type='range'] {
   white-space: nowrap;
   cursor: pointer;
 }
-.news-place:hover { border-color: var(--accent); }
+.place-button:hover { border-color: var(--accent); }
 .tag-history { background: var(--ink); color: var(--surface); }
 .tag-milestone { background: color-mix(in srgb, var(--good) 14%, transparent); color: var(--good); }
 .tag-inbox { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }

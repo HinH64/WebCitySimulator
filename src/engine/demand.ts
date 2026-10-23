@@ -1,10 +1,11 @@
 import { DEPT_INFO, type DeptId } from '../data/budget'
 import { POLICY_BY_ID } from '../data/policies'
 import { areaSeverity, response, topAreas } from './approval'
+import { upcoming } from './pipeline'
 import { levelAt } from './real'
 import { playerPolicyLevel } from './sim'
 import { LAST_MONTH_INDEX } from './time'
-import type { AreaId, GameState, Metrics, StockKey } from './types'
+import type { AreaId, GameState, Metrics } from './types'
 
 export type Status = 'good' | 'warn' | 'bad'
 
@@ -30,13 +31,6 @@ const pct = (f: number) => `${Math.round(f * 100)}%`
 function status(v: number, good: number, warn: number, higherIsBetter: boolean): Status {
   if (higherIsBetter) return v >= good ? 'good' : v >= warn ? 'warn' : 'bad'
   return v <= good ? 'good' : v <= warn ? 'warn' : 'bad'
-}
-
-/** Sum of scheduled changes to a stock within the next `months`. */
-export function upcoming(s: GameState, key: StockKey, months: number): number {
-  let total = 0
-  for (let t = s.t; t < s.t + months; t++) total += s.pipeline[t]?.[key] ?? 0
-  return total
 }
 
 /** Metrics as they were `years` ago, from the yearly snapshots. */
