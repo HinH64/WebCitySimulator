@@ -124,7 +124,7 @@ function footprint(tr: Transform, c: number, r: number, x: number, y: number, w:
   return [[x, y], [x + w, y], [x + w, y + h], [x, y + h]].map(([dx, dy]) => project(tr, c + dx, r + dy)) as [number, number][]
 }
 
-function block(ctx: CanvasRenderingContext2D, tr: Transform, c: number, r: number, x: number, y: number, w: number, depth: number, height: number, colour: string) {
+function block(ctx: CanvasRenderingContext2D, tr: Transform, c: number, r: number, x: number, y: number, w: number, depth: number, height: number, colour: string, fresh = false) {
   const base = footprint(tr, c, r, x, y, w, depth)
   if (tr.projection === 'plan') {
     polygon(ctx, base.map(([px, py]) => [px + 1, py + 1]), 'rgba(20,38,40,0.16)')
@@ -142,7 +142,7 @@ function block(ctx: CanvasRenderingContext2D, tr: Transform, c: number, r: numbe
   polygon(ctx, [base[2], base[3], roof[3], roof[2]], tint(colour, -0.12))
   polygon(ctx, roof, tint(colour, 0.3), tint(colour, -0.14))
   if (tr.scale >= 10 && height > 0.7) {
-    ctx.strokeStyle = 'rgba(255,255,255,0.35)'
+    ctx.strokeStyle = fresh ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.22)'
     ctx.lineWidth = 0.65
     for (let n = 0.3; n < height - 0.1; n += 0.34) {
       ctx.beginPath()
@@ -155,36 +155,42 @@ function block(ctx: CanvasRenderingContext2D, tr: Transform, c: number, r: numbe
 
 /**
  * Buildings on one cell. `fresh` ones went up during the term (real or the city's own, including old
- * flats rebuilt): taller towers in cleaner colours, so a player can tell what was built on their watch.
+ * flats rebuilt): tall towers in bright colours with lit windows. Older ones are lower and weathered,
+ * so a player can tell what was built on their watch.
  */
 function objects(ctx: CanvasRenderingContext2D, tr: Transform, c: number, r: number, kind: TileKind, building: boolean, fresh: boolean) {
   const variation = ((c * 31 + r * 17) % 5) * 0.08
   const colour = KIND_COLOUR[kind]
-  const b = (x: number, y: number, w: number, d: number, h: number, col = colour) => block(ctx, tr, c, r, x, y, w, d, h, col)
+  const b = (x: number, y: number, w: number, d: number, h: number, col = colour) => block(ctx, tr, c, r, x, y, w, d, h, col, fresh)
   if (kind === 'public' && fresh) {
-    b(0.14, 0.14, 0.26, 0.26, 2.3 + variation, '#e2b56c')
-    b(0.58, 0.52, 0.26, 0.26, 2 + variation, '#efd29c')
+    b(0.14, 0.14, 0.26, 0.26, 2.7 + variation, '#f0a83c')
+    b(0.58, 0.52, 0.26, 0.26, 2.4 + variation, '#f6c978')
   } else if (kind === 'public') {
-    b(0.12, 0.12, 0.22, 0.7, 1.5 + variation, '#d3aa65')
-    b(0.57, 0.12, 0.22, 0.7, 1.5 + variation, '#e7c98d')
+    b(0.12, 0.12, 0.22, 0.7, 1.3 + variation, '#b8a072')
+    b(0.57, 0.12, 0.22, 0.7, 1.3 + variation, '#c8b38a')
   } else if (kind === 'private' && fresh) {
-    b(0.12, 0.14, 0.24, 0.24, 2.5 + variation, '#d4867c')
-    b(0.6, 0.12, 0.24, 0.24, 2.1 + variation, '#e2aaa2')
-    b(0.36, 0.6, 0.24, 0.24, 2.8 + variation, '#dc978e')
+    b(0.12, 0.14, 0.24, 0.24, 2.9 + variation, '#e46a5c')
+    b(0.6, 0.12, 0.24, 0.24, 2.5 + variation, '#f09a8d')
+    b(0.36, 0.6, 0.24, 0.24, 3.2 + variation, '#ea8174')
   } else if (kind === 'private') {
-    for (const [x, y] of [[0.12, 0.12], [0.57, 0.12], [0.12, 0.57], [0.57, 0.57]]) b(x, y, 0.28, 0.28, 1.05 + variation, '#cb8c83')
+    for (const [x, y] of [[0.12, 0.12], [0.57, 0.12], [0.12, 0.57], [0.57, 0.57]]) b(x, y, 0.28, 0.28, 0.95 + variation, '#ad827b')
   } else if (kind === 'commercial' && fresh) {
-    b(0.1, 0.1, 0.8, 0.8, 0.25, '#b7bdcd')
-    b(0.3, 0.3, 0.36, 0.36, 3.2 + variation, '#7f9bc6')
+    b(0.1, 0.1, 0.8, 0.8, 0.25, '#c9d2e3')
+    b(0.3, 0.3, 0.36, 0.36, 3.6 + variation, '#4f86d9')
   } else if (kind === 'commercial') {
-    b(0.12, 0.12, 0.3, 0.55, 2 + variation, '#8a93b0')
-    b(0.57, 0.3, 0.28, 0.5, 1.5 + variation, '#b0b7ca')
+    b(0.12, 0.12, 0.3, 0.55, 1.8 + variation, '#868a96')
+    b(0.57, 0.3, 0.28, 0.5, 1.3 + variation, '#9fa3ad')
   } else if (kind === 'industrial' || kind === 'logistics' || kind === 'port') {
-    b(0.12, 0.12, 0.72, 0.27, 0.35, kind === 'port' ? '#718d9f' : '#9c99ac')
-    b(0.12, 0.58, 0.72, 0.27, 0.35, '#bac0c6')
+    if (fresh) {
+      b(0.1, 0.12, 0.8, 0.32, 0.45, kind === 'port' ? '#5f86a6' : '#8f9bc0')
+      b(0.1, 0.58, 0.8, 0.3, 0.45, '#dde3ea')
+    } else {
+      b(0.12, 0.12, 0.72, 0.27, 0.35, kind === 'port' ? '#6f8494' : '#8f8d99')
+      b(0.12, 0.58, 0.72, 0.27, 0.35, '#a7abb0')
+    }
   } else if (kind === 'institution' || kind === 'sciencePark') {
-    b(0.15, 0.12, 0.62, 0.24, 0.6, '#c7d5d9')
-    b(0.15, 0.58, 0.62, 0.24, 0.6, '#85a8b1')
+    b(0.15, 0.12, 0.62, 0.24, 0.6, fresh ? '#e3eef0' : '#b9c4c7')
+    b(0.15, 0.58, 0.62, 0.24, 0.6, fresh ? '#6fb0c0' : '#8a9fa5')
   } else if (kind === 'village') {
     b(0.12, 0.15, 0.27, 0.27, 0.35, '#c5a18a')
     b(0.58, 0.5, 0.27, 0.3, 0.3, '#d8c8ab')

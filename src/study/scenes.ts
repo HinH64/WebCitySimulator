@@ -8,7 +8,6 @@ export const SCENARIOS = [
   { id: 'housing', label: '多建公營房屋', action: '房屋撥款固定 180%，其餘照歷史', focus: 'kaiTak' },
   { id: 'housingNorth', label: '多建房屋・北部新市鎮', action: '房屋撥款固定 180%，新增房屋先放北部新市鎮，其餘照歷史', focus: 'kwuTung' },
   { id: 'housingLantau', label: '多建房屋・大嶼及填海', action: '房屋撥款固定 180%，新增房屋先放大嶼山及填海地，其餘照歷史', focus: 'kauYiChau' },
-  { id: 'housingUrban', label: '多建房屋・市區及將軍澳', action: '房屋撥款固定 180%，新增房屋先放市區及將軍澳，其餘照歷史', focus: 'tseungKwanO' },
   { id: 'transport', label: '大力投資鐵路', action: '交通撥款固定 180%，其餘照歷史', focus: 'tinShuiWai' },
   { id: 'finance', label: '金融商業', action: '產業重點固定為金融，其餘照歷史', focus: 'kowloonEast' },
   { id: 'professional', label: '專業服務及創科', action: '產業重點固定為創科，其餘照歷史', focus: 'sanTin' },
@@ -17,8 +16,11 @@ export const SCENARIOS = [
 ] as const
 export type ScenarioId = (typeof SCENARIOS)[number]['id']
 
-/** The same city as 多建公營房屋; only where its extra homes go first differs, so its figures are the same. */
-const HOMES_FIRST: Partial<Record<ScenarioId, HomesFirst>> = { housingNorth: 'north', housingLantau: 'lantau', housingUrban: 'urban' }
+/**
+ * The same city as 多建公營房屋; only where its extra homes go first differs, so its figures are the same.
+ * The urban area is left out until density (3f.3): it has too few sites, and its homes would end up in the north.
+ */
+const HOMES_FIRST: Partial<Record<ScenarioId, HomesFirst>> = { housingNorth: 'north', housingLantau: 'lantau' }
 
 export interface StudyFrame extends CityWorks {
   t: number
