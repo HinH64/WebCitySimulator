@@ -8,5 +8,7 @@ export default defineConfig({
   plugins: [react()],
   test: {
     include: ['tests/**/*.test.ts'],
+    // Balance and approval tests play dozens of whole 29-year games; CI runners are slower than a desktop.
+    testTimeout: 30_000,
   },
 })

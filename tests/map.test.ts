@@ -26,6 +26,12 @@ import { LAST_MONTH_INDEX, monthIndex } from '../src/engine/time'
 import { allFunding, boost } from './strategies'
 
 const count = (grid: Uint8Array, cells: number[], kind: keyof typeof KIND_INDEX) => cells.filter((c) => grid[c] === KIND_INDEX[kind]).length
+/** Cells that differ between two grids. Much faster than toEqual, which compares typed arrays one value at a time. */
+const differing = (a: Uint8Array, b: Uint8Array) => {
+  let n = Math.abs(a.length - b.length)
+  for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] !== b[i]) n++
+  return n
+}
 const project = (id: string) => MAP_PROJECTS.find((p) => p.id === id)!
 
 describe('map data', () => {
@@ -62,7 +68,7 @@ describe('map data', () => {
 
 describe('real Hong Kong on the map', () => {
   it('ends on the 2025 land use', () => {
-    expect(realMapAt(LAST_MONTH_INDEX)).toEqual(baseMap())
+    expect(differing(realMapAt(LAST_MONTH_INDEX), baseMap())).toBe(0)
   })
 
   it('starts in 1997 with Kai Tak open and Chek Lap Kok still being built', () => {
@@ -99,7 +105,7 @@ describe('the city on the map', () => {
   it('is real Hong Kong when following history', () => {
     const s = playThrough(42, FOLLOW_HISTORY, { events: false })
     const map = cityMapAt(s)
-    expect(map.grid).toEqual(realMapAt(LAST_MONTH_INDEX))
+    expect(differing(map.grid, realMapAt(LAST_MONTH_INDEX))).toBe(0)
     expect(map.rail).toEqual(realRailAt(LAST_MONTH_INDEX))
   })
 
@@ -198,11 +204,21 @@ describe('the map over the term', () => {
   it('redraws the end of the term from the last yearly snapshot', () => {
     const s = playThrough(3, boost('housing', 1.8))
     const last = s.snapshots.at(-1)!
-    expect(cityMapFrom(last.metrics, last.t, last.t + 1)).toEqual(cityMapAt(s))
+    const fromSnapshot = cityMapFrom(last.metrics, last.t, last.t + 1)
+    const now = cityMapAt(s)
+    expect(differing(fromSnapshot.grid, now.grid)).toBe(0)
+    expect(fromSnapshot.rail).toEqual(now.rail)
+    expect(fromSnapshot.haze).toBe(now.haze)
   })
 
   it('is real Hong Kong every year when following history', () => {
     const s = playThrough(42, FOLLOW_HISTORY, { events: false })
-    for (const snap of s.snapshots) expect(cityMapFrom(snap.metrics, snap.t, snap.t + 1), String(snap.year)).toEqual(realCityMapAt(snap.t))
+    for (const snap of s.snapshots) {
+      const map = cityMapFrom(snap.metrics, snap.t, snap.t + 1)
+      const real = realCityMapAt(snap.t)
+      expect(differing(map.grid, real.grid), String(snap.year)).toBe(0)
+      expect(map.rail, String(snap.year)).toEqual(real.rail)
+      expect(map.haze, String(snap.year)).toBe(real.haze)
+    }
   })
 })
