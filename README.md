@@ -31,6 +31,7 @@
 npm install
 npm run dev        # 本機開發
 npm test           # 單元測試、歷史回測、平衡測試
+npm run test:balance # 4g 平衡回測：10 個種子、18 個情境，印出分數、任期、民望和淨儲備
 npm run build      # 型別檢查並建置到 dist/
 npm run images     # 用 Chrome 重新產生分享預覽圖和主畫面圖示（scripts/images → public/）
 npm run data:map   # 重新下載地圖數據（土地用途、鐵路站、分區樓價）；--skip-land 跳過較慢的土地用途

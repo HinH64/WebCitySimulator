@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:balance": "vitest run tests/balance.test.ts --reporter=verbose --silent=false",
     "data:official": "node scripts/fetch-official.mjs",
     "data:map": "node scripts/fetch-map.mjs",
     "images": "node scripts/make-images.mjs"

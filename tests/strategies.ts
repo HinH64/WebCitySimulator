@@ -3,7 +3,7 @@ import { POLICIES } from '../src/data/policies'
 import { demandRows } from '../src/engine/demand'
 import { realFunding } from '../src/engine/real'
 import { nextRandom } from '../src/engine/rng'
-import { FOLLOW_HISTORY, baselines, metricsNow, setFunding, setPolicy, setTax, type Strategy } from '../src/engine/sim'
+import { FOLLOW_HISTORY, baselines, debtTotal, metricsNow, setFunding, setPolicy, setTax, type Strategy } from '../src/engine/sim'
 import { monthOf } from '../src/engine/time'
 
 export { FOLLOW_HISTORY }
@@ -70,6 +70,29 @@ export const THOUGHTFUL: Strategy = {
     for (const d of others) setFunding(s, d, Math.max(0.95, s.funding[d] - shift / othersBase))
   },
   choose: FOLLOW_HISTORY.choose,
+}
+
+/** A demand-led government that also invests in jobs and housing while it has a year's buffer. */
+export const SKILLED: Strategy = {
+  onMonth: (s) => {
+    THOUGHTFUL.onMonth!(s)
+    if (s.t > 0 && monthOf(s.t) !== 1) return
+    if (s.reserves - debtTotal(s) < s.last.spendingTotal * 12) return
+    setFunding(s, 'economy', Math.max(s.funding.economy, 1.4))
+    setFunding(s, 'housing', Math.max(s.funding.housing, realFunding('housing', s.t) + 0.3))
+  },
+  choose: THOUGHTFUL.choose,
+}
+
+/** Follow history except for one policy, including when a historical decision sets that policy. */
+export function withPolicy(id: string, level: string): Strategy {
+  return {
+    onMonth: (s) => {
+      FOLLOW_HISTORY.onMonth!(s)
+      setPolicy(s, id, level)
+    },
+    choose: FOLLOW_HISTORY.choose,
+  }
 }
 
 /** Random funding, taxes and policies every year; random answers. */

@@ -57,7 +57,7 @@ export interface ScoreParts {
   cityEnd: number
   /** Six indicators averaged over every year of the term (0–100). */
   cityAverage: number
-  /** Net reserves against a year of spending, or debt against GDP (0–100). */
+  /** Net reserves up to three months of spending, or debt against GDP (0–100). */
   fiscal: number
   /** Population size (0–100). */
   population: number
