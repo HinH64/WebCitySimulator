@@ -5,6 +5,7 @@ import { POLICIES, POLICY_BY_ID, REBUILD_MONTHS, type PolicyDef, type PolicyEffe
 import { yearValue } from '../data/real'
 import { APPROVAL, grievances, newApproval, noteAnswer, updateApproval } from './approval'
 import { pickCitizens, stepCitizens } from './citizens'
+import { delayedEffect, effectStart, optionEffectWords, policyEffectWords } from './effects'
 import { computeIndicators } from './indicators'
 import { cityRail, railKey } from './map'
 import { attractiveness, clamp, computeMetrics, fullQuality, realMetrics, zeroDeviations } from './metrics'
@@ -157,6 +158,7 @@ export function newGame(seed: number, options: Partial<GameOptions> = {}): GameS
     taxes,
     felt: { ...realFelt(0) },
     policies,
+    policySince: Object.fromEntries(POLICIES.map((p) => [p.id, { level: policies[p.id], from: 0 }])),
     policyQueue: [],
     policyLevels: { unemployment: 0, welfare: 0, attract: 0, pm10: 0, green: 0 },
     sectors: { ...realSectors(0) },
@@ -313,6 +315,7 @@ export function answer(s: GameState, uid: number, optionId: string, expired = fa
   if (!opt) return undefined
   s.inbox = s.inbox.filter((i) => i.uid !== uid)
   noteAnswer(s, item, expired)
+  const policiesBefore = Object.fromEntries(opt.effects.flatMap((e) => (e.kind === 'policy' ? [[e.id, playerPolicyLevel(s, POLICY_BY_ID[e.id], s.t)]] : [])))
   // Decisions expire while a month is being simulated.
   const from = expired ? s.t + 1 : s.t
 
@@ -337,12 +340,17 @@ export function answer(s: GameState, uid: number, optionId: string, expired = fa
     optionId: opt.id,
     optionLabel: opt.label,
     expired,
+    received: item.received,
+    effects: opt.effects,
+    policiesBefore,
   }
   s.choices.push(record)
+  const words = optionEffectWords(opt, true, (id) => policiesBefore[id])
+  const outcome = words[0] === '維持現狀' ? '，維持現狀。' : `。預計：${words.join('、')}。`
   s.news.push({
     t: s.t,
     kind: 'decision',
-    text: expired ? `${item.title}：限期已過，維持「${opt.label}」` : `${item.title}：你決定「${opt.label}」`,
+    text: expired ? `${item.title}：限期已過，維持「${opt.label}」${outcome}` : `${item.title}：你決定「${opt.label}」${outcome}`,
   })
   return record
 }
@@ -477,9 +485,35 @@ function closeYear(s: GameState, m: Metrics) {
         `公營房屋 ${signed(m.publicUnits - acc.publicStart, 1)} 萬個；鐵路 ${signed(m.railKm - acc.railStart, 0)} 公里。`,
       tone: balance >= 0 ? 'good' : 'bad',
     })
+    const brought = yearOfDecisions(s, acc.year)
+    if (brought.length) s.news.push({ t: s.t, kind: 'report', text: `${acc.year} 年你的決定帶來：${brought.join('；')}。` })
   }
   s.year = newAccumulator(yearOf(s.t), m)
 }
+
+/**
+ * What the player's decisions started doing in a year: effects of answered decisions that began then, and
+ * policy changes that came into full effect (about two years after the change).
+ */
+function yearOfDecisions(s: GameState, year: number): string[] {
+  const inYear = (t: number) => yearOf(t) === year
+  const out: string[] = []
+  for (const c of s.choices) {
+    const starting = c.effects.filter((e) => delayedEffect(e) && inYear(effectStart(c, e)))
+    if (starting.length) out.push(`${c.title}（${optionEffectWords({ id: c.optionId, label: c.optionLabel, effects: starting }, false, (id) => c.policiesBefore[id]).join('、')}）`)
+  }
+  for (const p of POLICIES) {
+    const since = s.policySince[p.id]
+    if (!since || since.from === 0 || !inYear(since.from + POLICY_PHASE_IN)) continue
+    const level = p.levels.find((l) => l.id === since.level)!
+    const words = policyEffectWords(p, since.level)
+    out.push(`「${p.label}」${level.label}全面生效${words.length ? `（${words.join('、')}）` : ''}`)
+  }
+  return out
+}
+
+/** Months for a policy's level effects to phase in fully. */
+export const POLICY_PHASE_IN = 24
 
 function snapshot(s: GameState, t: number) {
   const m = computeMetrics(s, t)
@@ -513,6 +547,7 @@ export function step(s: GameState) {
 
   for (const q of s.policyQueue.filter((x) => x.t <= t)) s.policies[q.id] = q.level
   s.policyQueue = s.policyQueue.filter((x) => x.t > t)
+  for (const p of POLICIES) if (s.policySince[p.id]?.level !== s.policies[p.id]) s.policySince[p.id] = { level: s.policies[p.id], from: t }
 
   const due = applyPipeline(s)
   const real = realMetrics(t)

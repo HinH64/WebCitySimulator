@@ -231,6 +231,11 @@ export interface ChoiceRecord {
   optionLabel: string
   /** True when the deadline passed and the default was taken. */
   expired: boolean
+  /** The month it came up, which its effects' `at` counts from, and what the chosen option does. */
+  received: number
+  effects: Effect[]
+  /** Levels of the policies the option sets, just before it was chosen. */
+  policiesBefore: Record<string, string>
 }
 
 export type NewsKind = 'history' | 'inbox' | 'decision' | 'parallel' | 'city' | 'project' | 'citizen' | 'stats' | 'milestone' | 'report' | 'system'
@@ -330,6 +335,8 @@ export interface GameState {
   felt: Record<TaxId, number>
   /** Policy levels; they change only when the player changes them or answers a decision. */
   policies: Record<string, string>
+  /** Each policy's level and the month it started, for what it has done so far (CONTENT.md 4j). */
+  policySince: Record<string, { level: string; from: number }>
   /** Policy changes already decided that start later. */
   policyQueue: { t: number; id: string; level: string }[]
   /** Level effects of policies as they phase in. */

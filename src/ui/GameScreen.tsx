@@ -2,7 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { demandRows, topConcerns, type DemandRow } from '../engine/demand'
 import { computeIndicators } from '../engine/indicators'
 import { APPROVAL } from '../engine/approval'
-import { answer, debtTotal, metricsNow, step } from '../engine/sim'
+import { POLICY_BY_ID } from '../data/policies'
+import { answer, debtTotal, metricsNow, playerPolicyLevel, step } from '../engine/sim'
 import { START_YEAR, monthOf, yearOf } from '../engine/time'
 import type { GameState, Place, Signal } from '../engine/types'
 import { Inbox } from './Inbox'
@@ -367,7 +368,7 @@ export function GameScreen({ game, initialSpeed, settings, onSettings, onEnd, on
         <div className="news-col">
           {!narrow && <MapCard game={game} focus={mapFocus} onFocused={mapFocused} />}
           <Concerns concerns={view.concerns} onSelect={(row) => openPanel('demand', row)} />
-          <Inbox items={game.inbox} now={game.t} onAnswer={onAnswer} />
+          <Inbox items={game.inbox} now={game.t} onAnswer={onAnswer} levelOf={(id) => playerPolicyLevel(game, POLICY_BY_ID[id], game.t)} />
           <NewsFeed news={game.news} count={game.news.length} onPlace={showPlace} />
         </div>
 

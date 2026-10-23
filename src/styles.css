@@ -524,6 +524,8 @@ input[type='range'] {
 .policy-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.25rem; }
 .policy { padding: 0.6rem 0; border-top: 1px solid var(--line); }
 .policy p { margin: 0.2rem 0 0.4rem; }
+.effect-lines { list-style: none; padding: 0; margin: 0.35rem 0 0.2rem; display: grid; gap: 0.15rem; color: var(--ink-2); }
+.effect-level { display: inline-block; min-width: 3.2em; margin-right: 0.5em; color: var(--ink); font-weight: 600; }
 .policy.locked { opacity: 0.6; }
 .demand-list { display: grid; gap: 0.6rem; }
 .demand { border: 1px solid var(--line); border-radius: var(--radius); padding: 0.7rem 0.9rem; }
@@ -568,6 +570,7 @@ input[type='range'] {
 .deadline { font-size: 0.8rem; color: var(--ink-2); white-space: nowrap; }
 .deadline.urgent { color: var(--bad); font-weight: 600; }
 .options { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.4rem; margin-top: 0.4rem; }
+.option-choice { display: grid; gap: 0.2rem; align-content: start; }
 .option {
   text-align: left;
   padding: 0.5rem 0.75rem;
