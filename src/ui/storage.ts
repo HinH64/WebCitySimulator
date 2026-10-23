@@ -21,7 +21,7 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = {
   periodic: 0,
-  pauseOnChoice: false,
+  pauseOnChoice: true,
   pauseOnCrisis: true,
   pauseWhileEditing: false,
 }

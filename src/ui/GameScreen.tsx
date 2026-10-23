@@ -40,6 +40,13 @@ const NARROW_PANELS: { id: PanelId; label: string }[] = [{ id: 'map', label: '�
 
 const CHOICE_PAUSE = '有新抉擇待決定，已自動暫停。'
 
+/** The automatic pauses the top bar can switch; the settings dialog has these and the periodic pause. */
+const AUTO_PAUSE: { key: 'pauseOnChoice' | 'pauseOnCrisis' | 'pauseWhileEditing'; label: string; title: string }[] = [
+  { key: 'pauseOnChoice', label: '抉擇', title: '收到抉擇時暫停' },
+  { key: 'pauseOnCrisis', label: '危機', title: '危機時暫停（庫房見底、債務接近上限、民望告急）' },
+  { key: 'pauseWhileEditing', label: '操作面板', title: '操作面板時暫停' },
+]
+
 /** Why the clock should stop after a month, given the player's settings. */
 function pauseReason(signals: Signal[], settings: Settings, game: GameState): string | null {
   const year = yearOf(game.t - 1)
@@ -313,6 +320,16 @@ export function GameScreen({ game, initialSpeed, settings, onSettings, onEnd, on
               {view.lastApproval !== undefined && (
                 <span className={`small ${approval >= view.lastApproval ? 'good' : 'bad'}`}>{signed(approval - view.lastApproval, 0)}／年</span>
               )}
+            </div>
+          </div>
+          <div className="auto-pause" role="group" aria-label="自動暫停">
+            <span className="eyebrow">自動暫停</span>
+            <div className="segmented small-seg">
+              {AUTO_PAUSE.map((p) => (
+                <button key={p.key} className={settings[p.key] ? 'active' : ''} aria-pressed={settings[p.key]} title={p.title} onClick={() => onSettings({ ...settings, [p.key]: !settings[p.key] })}>
+                  {p.label}
+                </button>
+              ))}
             </div>
           </div>
           <div className="controls">

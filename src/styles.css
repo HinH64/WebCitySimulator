@@ -337,6 +337,7 @@ input[type='range'] {
 .vital { display: grid; line-height: 1.3; }
 .vital strong { font-size: 1.15rem; font-weight: 600; }
 .controls { display: flex; gap: 0.5rem; align-items: center; }
+.auto-pause { display: flex; gap: 0.5rem; align-items: center; }
 .speed-menu { position: relative; }
 .speed-list {
   position: absolute;
@@ -811,6 +812,7 @@ input[type='range'] {
   .vital .small { grid-column: 1 / -1; }
   .controls { margin-left: auto; }
   .controls .button { padding: 0.35rem 0.7rem; }
+  .auto-pause { order: 4; flex-basis: 100%; }
   .control-label { display: none; }
   /* One scrolling row keeps the sticky header short. */
   .indicator-strip { display: flex; overflow-x: auto; gap: 0.3rem; margin: 0 -16px; padding: 0 16px; scrollbar-width: none; }
