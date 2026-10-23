@@ -1,21 +1,36 @@
 import { MAP_COLS, MAP_TILE_KINDS } from '../data/mapBase'
 import type { TileKind } from '../data/mapProjects'
-import type { CityMap, RailSegment } from '../engine/map'
-import { KIND_COLOUR, hexToRgb } from '../ui/mapStyle'
-import { gridPoint, project, transformFor, visibleBounds, type Camera, type Projection, type Transform } from './geometry'
-import type { StudyFrame } from './scenes'
+import { lightRailStops, type CityMap, type RailSegment, type Railway } from '../engine/map'
+import type { CityWork } from '../engine/projects'
+import type { Place } from '../engine/types'
+import { KIND_COLOUR, hexToRgb } from './mapStyle'
+import { gridPoint, project, transformFor, visibleBounds, type Camera, type Projection, type Transform } from './mapGeometry'
+
+/** Historical snapshots lack a pipeline: callers leave works and railBuilding absent. */
+export interface MapScene {
+  t: number
+  map: CityMap
+  works?: readonly CityWork[]
+  railBuilding?: Railway
+}
 
 export interface RenderOptions {
-  frame: StudyFrame
-  other: CityMap
+  frame: MapScene
+  other?: CityMap
   camera: Camera
   projection: Projection
   width: number
   height: number
   dpr: number
-  changed: Set<number>
-  highlight: boolean
+  changed?: Set<number>
+  highlight?: boolean
   dark: boolean
+  /** Flat analytical colours; always drawn in the plan projection. */
+  bitmap?: HTMLCanvasElement | null
+  outline?: { cells: readonly number[]; rail: Railway } | null
+  flash?: readonly number[]
+  marker?: Place | null
+  sea?: string
 }
 
 interface Sprite { canvas: HTMLCanvasElement; x: number; y: number; w: number; h: number }
@@ -145,21 +160,26 @@ function objects(ctx: CanvasRenderingContext2D, tr: Transform, c: number, r: num
 /** Draws only the supplied model output. Geometry is decorative and never consumes a simulation RNG. */
 export function renderScene(canvas: HTMLCanvasElement, options: RenderOptions): number {
   const start = performance.now()
-  const { frame, camera, projection, width, height, dpr, changed, highlight, other, dark } = options
+  const { frame, camera, projection, width, height, dpr, changed, highlight, other, dark, bitmap, outline, flash, marker } = options
   canvas.width = Math.round(width * dpr)
   canvas.height = Math.round(height * dpr)
   const ctx = canvas.getContext('2d')!
   ctx.scale(dpr, dpr)
   const tr = transformFor(camera, projection, width, height)
   const bounds = visibleBounds(tr, width, height)
-  const sea = dark ? '#233f4b' : '#d5e6e8'
+  const sea = options.sea || (dark ? '#233f4b' : '#d5e6e8')
   ctx.fillStyle = sea
   ctx.fillRect(0, 0, width, height)
   const cells: number[] = []
   for (let r = bounds.r0; r <= bounds.r1; r++) for (let c = bounds.c0; c <= bounds.c1; c++) cells.push(r * MAP_COLS + c)
   if (projection === 'iso') cells.sort((a, b) => (a % MAP_COLS + Math.floor(a / MAP_COLS)) - (b % MAP_COLS + Math.floor(b / MAP_COLS)) || a - b)
   // All ground first, so a neighbouring tile cannot paint over the top of a building.
-  for (const i of cells) {
+  if (bitmap && projection === 'plan') {
+    const [x, y] = project(tr, 0, 0)
+    ctx.imageSmoothingEnabled = false
+    ctx.drawImage(bitmap, x, y, bitmap.width * tr.scale, bitmap.height * tr.scale)
+  }
+  for (const i of bitmap ? [] : cells) {
     const kind = MAP_TILE_KINDS[frame.map.grid[i]] as TileKind
     if (kind === 'sea') continue
     const c = i % MAP_COLS
@@ -169,8 +189,8 @@ export function renderScene(canvas: HTMLCanvasElement, options: RenderOptions): 
     const sprite = cellSprite(tr, dpr, kind, 0, false, true)
     ctx.drawImage(sprite.canvas, x - sprite.x, y - sprite.y, sprite.w, sprite.h)
   }
-  if (tr.scale >= 5) {
-    const building = new Set(frame.works.flatMap((w) => w.building))
+  if (!bitmap && tr.scale >= 5) {
+    const building = new Set(frame.works?.flatMap((w) => w.building) ?? [])
     for (const i of cells) {
       const kind = MAP_TILE_KINDS[frame.map.grid[i]] as TileKind
       if (!['public', 'private', 'commercial', 'industrial', 'logistics', 'port', 'institution', 'sciencePark', 'village', 'construction', 'woodland', 'park', 'shrubGrass'].includes(kind)) continue
@@ -190,12 +210,29 @@ export function renderScene(canvas: HTMLCanvasElement, options: RenderOptions): 
   if (highlight) {
     ctx.strokeStyle = '#f4a340'
     ctx.lineWidth = 1.8
-    for (const i of cells) if (changed.has(i)) {
+    for (const i of cells) if (changed?.has(i)) {
       const points = footprint(tr, i % MAP_COLS, Math.floor(i / MAP_COLS), 0.04, 0.04, 0.92, 0.92)
       ctx.beginPath(); points.forEach(([x, y], k) => k ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.closePath(); ctx.stroke()
     }
   }
-  const routeIds = new Set(other.rail.segments.map((s) => s.route))
+  const outlineCells = (indices: readonly number[], colour: string) => {
+    ctx.strokeStyle = colour; ctx.lineWidth = 1.8
+    for (const i of indices) {
+      const c = i % MAP_COLS, r = Math.floor(i / MAP_COLS)
+      if (c < bounds.c0 || c > bounds.c1 || r < bounds.r0 || r > bounds.r1) continue
+      const points = footprint(tr, c, r, 0.04, 0.04, 0.92, 0.92)
+      ctx.beginPath(); points.forEach(([x, y], k) => k ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.closePath(); ctx.stroke()
+    }
+  }
+  if (outline) outlineCells(outline.cells, '#d6336c')
+  if (flash) outlineCells(flash, '#ffd400')
+  const routeIds = new Set(other?.rail.segments.map((s) => s.route) ?? [])
+  if (outline) {
+    ctx.strokeStyle = '#d6336c'; ctx.lineWidth = 7; ctx.lineCap = 'round'
+    ctx.beginPath()
+    for (const s of outline.rail.segments) { ctx.moveTo(...project(tr, ...gridPoint(...s.from))); ctx.lineTo(...project(tr, ...gridPoint(...s.to))) }
+    ctx.stroke()
+  }
   const line = (s: RailSegment, building: boolean) => {
     const a = project(tr, ...gridPoint(...s.from))
     const b = project(tr, ...gridPoint(...s.to))
@@ -205,9 +242,14 @@ export function renderScene(canvas: HTMLCanvasElement, options: RenderOptions): 
       ctx.beginPath(); ctx.moveTo(...a); ctx.lineTo(...b); ctx.stroke()
     }
   }
-  frame.railBuilding.segments.forEach((s) => line(s, true))
+  frame.railBuilding?.segments.forEach((s) => line(s, true))
   frame.map.rail.segments.forEach((s) => line(s, false))
   ctx.setLineDash([])
+  ctx.fillStyle = '#3d7a4a'
+  for (const stop of lightRailStops(frame.t)) {
+    const [x, y] = project(tr, ...gridPoint(stop.e, stop.n))
+    ctx.beginPath(); ctx.arc(x, y, tr.scale < 5 ? 1 : 1.5, 0, Math.PI * 2); ctx.fill()
+  }
   ctx.font = '11px system-ui, "Microsoft JhengHei", sans-serif'
   const labels: { x: number; y: number; w: number }[] = []
   for (const station of frame.map.rail.stations) {
@@ -223,6 +265,15 @@ export function renderScene(canvas: HTMLCanvasElement, options: RenderOptions): 
     ctx.strokeText(station.name, x + 5, y - 5)
     ctx.fillStyle = dark ? '#e8eee5' : '#25444b'; ctx.fillText(station.name, x + 5, y - 5)
   }
+  if (marker) {
+    const [x, y] = project(tr, ...gridPoint(...marker))
+    const radius = Math.max(12, Math.min(32, tr.scale * 1.5))
+    for (const [colour, lw] of [['#fff', 5], ['#c9252d', 2.5]] as const) {
+      ctx.strokeStyle = colour; ctx.lineWidth = lw
+      ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI * 2); ctx.stroke()
+    }
+    ctx.fillStyle = '#c9252d'; ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill()
+  }
   // A modest scale indicator follows the same world-to-screen transform as the city.
   const origin = project(tr, camera.cx, camera.cy)
   const kilometre = project(tr, camera.cx + 4, camera.cy)
@@ -233,5 +284,7 @@ export function renderScene(canvas: HTMLCanvasElement, options: RenderOptions): 
     ctx.beginPath(); ctx.moveTo(18, height - 20 - scaleHeight); ctx.lineTo(18 + scaleWidth, height - 20); ctx.stroke()
     ctx.font = '10px system-ui, sans-serif'; ctx.fillText('1 公里（地面東西向）', 18, height - 28 - scaleHeight)
   }
-  return performance.now() - start
+  const elapsed = performance.now() - start
+  if (import.meta.env.DEV) canvas.dataset.drawMs = elapsed.toFixed(2)
+  return elapsed
 }

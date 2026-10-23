@@ -93,6 +93,7 @@ export interface MapPrefs {
   layer: MapLayer
   /** Outline the city's own developments. */
   mine: boolean
+  projection: 'plan' | 'iso'
 }
 
 const MAP_KEY = 'parallel-hk.map.v1'
@@ -104,6 +105,7 @@ export function loadMapPrefs(): MapPrefs {
     open: typeof p?.open === 'boolean' ? p.open : true,
     layer: p && MAP_LAYERS.includes(p.layer as MapLayer) ? (p.layer as MapLayer) : 'land',
     mine: typeof p?.mine === 'boolean' ? p.mine : false,
+    projection: p?.projection === 'plan' ? 'plan' : 'iso',
   }
 }
 

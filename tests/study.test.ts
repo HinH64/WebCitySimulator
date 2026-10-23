@@ -3,7 +3,7 @@ import { MAP_COLS, MAP_ROWS } from '../src/data/mapBase'
 import type { CityMap } from '../src/engine/map'
 import { metricsNow, playThrough } from '../src/engine/sim'
 import { LAST_MONTH_INDEX } from '../src/engine/time'
-import { DISTRICTS, changesBetween, districtCamera, districtCells, mostChangedDistrict, project, transformFor, unproject, visibleBounds } from '../src/study/geometry'
+import { DISTRICTS, changesBetween, districtCamera, districtCells, mostChangedDistrict, project, transformFor, unproject, visibleBounds } from '../src/ui/mapGeometry'
 import { buildStudyRun, sharedFrames } from '../src/study/scenes'
 import { boost } from './strategies'
 

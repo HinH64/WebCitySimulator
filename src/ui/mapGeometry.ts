@@ -44,6 +44,28 @@ export function unproject(tr: Transform, x: number, y: number): [number, number]
   return tr.projection === 'iso' ? [tr.cx + dx * 0.5 + dy, tr.cy - dx * 0.5 + dy] : [tr.cx + dx, tr.cy + dy]
 }
 
+/** Keep the city's centre reachable in either projection, including after resizing. */
+export function clampCamera(camera: Camera): Camera {
+  return { ...camera, cx: Math.max(0, Math.min(MAP_COLS, camera.cx)), cy: Math.max(0, Math.min(MAP_ROWS, camera.cy)), zoom: Math.max(1, Math.min(16, camera.zoom)) }
+}
+
+/** Pan and zoom use the same inverse as buildings, rail and news markers. CSS pixels throughout. */
+export function panCamera(camera: Camera, projection: Projection, width: number, height: number, dx: number, dy: number): Camera {
+  const tr = transformFor(camera, projection, width, height)
+  const origin = unproject(tr, 0, 0)
+  const moved = unproject(tr, dx, dy)
+  return clampCamera({ ...camera, cx: camera.cx - moved[0] + origin[0], cy: camera.cy - moved[1] + origin[1] })
+}
+
+export function zoomCamera(camera: Camera, projection: Projection, width: number, height: number, factor: number, x = width / 2, y = height / 2): Camera {
+  const before = unproject(transformFor(camera, projection, width, height), x, y)
+  // A district preset is already magnified. Bound building sprite size as well as the zoom factor.
+  const baseScale = transformFor({ ...camera, zoom: 1 }, projection, width, height).scale
+  const next = clampCamera({ ...camera, zoom: Math.min(camera.zoom * factor, 40 / baseScale) })
+  const after = unproject(transformFor(next, projection, width, height), x, y)
+  return clampCamera({ ...next, cx: next.cx + before[0] - after[0], cy: next.cy + before[1] - after[1] })
+}
+
 /** Include the screen corners, with room for buildings extending above their ground footprint. */
 export function visibleBounds(tr: Transform, width: number, height: number) {
   const margin = Math.max(60, tr.scale * 3.5)

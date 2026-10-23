@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import { MAP_TILE_KINDS } from '../data/mapBase'
 import { monthOf, yearOf } from '../engine/time'
-import { DISTRICTS, changesBetween, districtCamera, districtCells, gridPoint, mostChangedDistrict, transformFor, unproject, type Camera, type District, type Projection } from './geometry'
-import { renderScene } from './render'
+import { DISTRICTS, changesBetween, districtCamera, districtCells, gridPoint, mostChangedDistrict, transformFor, unproject, type Camera, type District, type Projection } from '../ui/mapGeometry'
+import { renderScene } from '../ui/mapRenderer'
 import { SCENARIOS, buildStudyRun, sharedFrames, type ScenarioId, type StudyFrame, type StudyRun } from './scenes'
 
 type StudyData = Record<ScenarioId | 'history', StudyRun>

@@ -589,6 +589,10 @@ input[type='range'] {
 .map-frame { position: relative; overflow: hidden; border-radius: var(--radius-sm); background: var(--map-sea); }
 .map-frame canvas { display: block; touch-action: pan-y; cursor: grab; }
 .map-frame canvas.zoomed { touch-action: none; }
+.map-frame canvas.city-canvas { touch-action: none; }
+.map-places, .map-years { align-items: center; justify-content: flex-start; }
+.map-places label, .map-years label { display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; color: var(--ink-2); min-width: 0; }
+.map-places select, .map-years select { min-width: 0; max-width: 100%; padding: 0.3rem; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); color: var(--ink); font: inherit; }
 .map-frame canvas:active { cursor: grabbing; }
 .map-zoom { position: absolute; top: 0.5rem; right: 0.5rem; display: grid; gap: 0.25rem; }
 .map-zoom .button { min-width: 2.1rem; background: var(--surface); }

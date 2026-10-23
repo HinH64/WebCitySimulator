@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
-import { MAP_COLS, MAP_ROWS, MAP_TILE_KINDS } from '../data/mapBase'
+import { MAP_TILE_KINDS } from '../data/mapBase'
 import {
-  cityMapFrom,
   lightRailStops,
   peoplePerCell,
   railCoverage,
@@ -10,11 +9,14 @@ import {
   type CityMap,
 } from '../engine/map'
 import { realMetrics } from '../engine/metrics'
-import { monthOf, yearOf } from '../engine/time'
+import { yearOf } from '../engine/time'
 import type { GameState } from '../engine/types'
 import { formatNumber, percent } from './format'
-import { KIND_COLOUR } from './mapStyle'
-import { cssColour, drawMap, layerBitmap, useDarkTheme, useMapSize } from './MapView'
+import { useDarkTheme, useMapSize } from './MapView'
+import { DISTRICTS, districtCamera, zoomCamera, type Camera, type Projection } from './mapGeometry'
+import { mapMoments, sceneAtMoment } from './mapHistory'
+import { renderScene } from './mapRenderer'
+import { loadMapPrefs } from './storage'
 
 interface Frame {
   t: number
@@ -52,22 +54,15 @@ function stats(map: CityMap, t: number, population: number) {
  */
 export function MapCompare({ game, endT }: { game: GameState; endT: number }) {
   const frames = useMemo<Frame[]>(() => {
-    const start: Frame = { t: 0, label: '1997 年 7 月（接手時）', yours: realCityMapAt(0), real: realCityMapAt(0), population: realMetrics(0).population }
-    const yearly = game.snapshots
-      .filter((s) => s.t <= endT)
-      .map((s) => ({
-        t: s.t,
-        label: monthOf(s.t) === 12 ? `${s.year} 年底` : `${s.year} 年 ${monthOf(s.t)} 月`,
-        yours: cityMapFrom(s.metrics, s.t, s.t + 1),
-        real: realCityMapAt(s.t),
-        population: s.metrics.population,
-      }))
-    return [start, ...yearly]
+    return mapMoments(game, endT).map((moment) => ({ ...moment, yours: sceneAtMoment(moment).map, real: realCityMapAt(moment.t), population: moment.metrics.population }))
   }, [game, endT])
 
   const [index, setIndex] = useState(frames.length - 1)
   const [playing, setPlaying] = useState(false)
   const [divider, setDivider] = useState(0.5)
+  const [district, setDistrict] = useState('all')
+  const [camera, setCamera] = useState<Camera>(() => districtCamera(DISTRICTS.find((d) => d.id === 'all')!))
+  const [projection, setProjection] = useState<Projection>(() => loadMapPrefs().projection)
   const frameRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const size = useMapSize(frameRef, 480)
@@ -84,24 +79,21 @@ export function MapCompare({ game, endT }: { game: GameState; endT: number }) {
     return () => window.clearTimeout(id)
   }, [playing, index, frames.length])
 
-  const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
+  const dpr = size.dpr
   const W = Math.round(size.w * dpr)
   const H = Math.round(size.h * dpr)
 
   // Both cities drawn whole, once per year and size; the divider only recombines them.
   const layers = useMemo(() => {
-    const el = frameRef.current
-    if (!el || W === 0) return null
-    const sea = cssColour(el, '--map-sea', KIND_COLOUR.sea)
-    const muted = cssColour(el, '--map-muted', '#e6e8eb')
+    if (W === 0) return null
     const draw = (map: CityMap) => {
       const canvas = document.createElement('canvas')
-      drawMap(canvas, { bitmap: layerBitmap(map, 'land', undefined, sea, muted), map, t: frame.t, W, H, cellPx: size.base, cx: MAP_COLS / 2, cy: MAP_ROWS / 2, flash: [], dpr, sea })
+      renderScene(canvas, { frame: { map, t: frame.t }, camera, projection, width: size.w, height: size.h, dpr, dark, sea: getComputedStyle(frameRef.current!).getPropertyValue('--map-sea').trim() })
       return canvas
     }
     return { yours: draw(frame.yours), real: draw(frame.real) }
     // `dark` re-reads the theme colours.
-  }, [frame, W, H, size.base, dpr, dark])
+  }, [frame, size, W, camera, projection, dpr, dark])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -140,6 +132,17 @@ export function MapCompare({ game, endT }: { game: GameState; endT: number }) {
 
   return (
     <div className="map-compare">
+      <div className="map-tools map-places">
+        <label>地區<select aria-label="結局地圖地區" value={district} onChange={(e) => { setDistrict(e.target.value); setCamera(districtCamera(DISTRICTS.find((d) => d.id === e.target.value)!)) }}>{DISTRICTS.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></label>
+        <div className="segmented small-seg" role="group" aria-label="結局地圖畫法">
+          <button className={projection === 'iso' ? 'active' : ''} aria-pressed={projection === 'iso'} onClick={() => setProjection('iso')}>2.5D</button>
+          <button className={projection === 'plan' ? 'active' : ''} aria-pressed={projection === 'plan'} onClick={() => setProjection('plan')}>俯視</button>
+        </div>
+        <div className="segmented small-seg" role="group" aria-label="結局地圖縮放">
+          <button aria-label="縮小結局地圖" disabled={camera.zoom <= 1} onClick={() => setCamera(zoomCamera(camera, projection, size.w, size.h, 1 / 1.6))}>−</button>
+          <button aria-label="放大結局地圖" disabled={zoomCamera(camera, projection, size.w, size.h, 1.6).zoom <= camera.zoom + 1e-6} onClick={() => setCamera(zoomCamera(camera, projection, size.w, size.h, 1.6))}>＋</button>
+        </div>
+      </div>
       <div className="map-compare-controls">
         <button
           className="button small-button"
@@ -208,7 +211,7 @@ export function MapCompare({ game, endT }: { game: GameState; endT: number }) {
           </tbody>
         </table>
       </div>
-      <p className="muted small">拖動地圖上的分隔線比較兩邊。每格 250 × 250 米；1997 年後的發展按公開資料整理，年份和範圍是約數。</p>
+      <p className="muted small">拖動地圖上的分隔線比較兩邊；可選地區、放大，年份切換保留視野。每格 250 × 250 米，樓群及高度是用地示意；過往施工進度未有紀錄。1997 年後的發展年份和範圍是約數。</p>
     </div>
   )
 }

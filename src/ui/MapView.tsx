@@ -1,74 +1,40 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from 'react'
-import { MAP_CELL, MAP_COLS, MAP_ORIGIN, MAP_ROWS, MAP_TILE_KINDS } from '../data/mapBase'
+import { MAP_COLS, MAP_ROWS, MAP_TILE_KINDS } from '../data/mapBase'
 import type { TileKind } from '../data/mapProjects'
-import {
-  RAIL_WALK,
-  lightRailStops,
-  peoplePerCell,
-  railCoverage,
-  railServedShare,
-  regionOf,
-  regionalPrices,
-  type CityMap,
-  type HomeKind,
-  type RailSegment,
-  type Railway,
-  type Region,
-} from '../engine/map'
+import { RAIL_WALK, lightRailStops, peoplePerCell, railCoverage, railServedShare, regionOf, regionalPrices, type CityMap, type HomeKind, type Region } from '../engine/map'
 import { realMetrics } from '../engine/metrics'
 import { cityWorks } from '../engine/projects'
 import { metricsNow } from '../engine/sim'
-import { LAST_MONTH_INDEX, yearOf } from '../engine/time'
+import { LAST_MONTH_INDEX, monthOf, yearOf } from '../engine/time'
 import type { GameState, Place } from '../engine/types'
 import { formatNumber, percent } from './format'
 import { DENSITY_SCALE, KIND_COLOUR, LAND_LEGEND, PRICE_SCALE, hexToRgb, scaleColour } from './mapStyle'
+import { DISTRICTS, clampCamera, districtCamera, gridPoint, panCamera, zoomCamera, type Camera, type Projection } from './mapGeometry'
+import { mapMoments, sceneAtMoment } from './mapHistory'
+import { renderScene, type MapScene } from './mapRenderer'
 import { loadMapPrefs, saveMapPrefs, type MapLayer } from './storage'
 
 const LAYERS: { id: MapLayer; label: string }[] = [
-  { id: 'land', label: '土地用途' },
-  { id: 'density', label: '人口密度' },
-  { id: 'price', label: '樓價' },
-  { id: 'rail', label: '鐵路覆蓋' },
+  { id: 'land', label: '土地用途' }, { id: 'density', label: '人口密度' },
+  { id: 'price', label: '樓價' }, { id: 'rail', label: '鐵路覆蓋' },
 ]
-
 const HOMES: HomeKind[] = ['public', 'private', 'village']
 const HOME_LABEL: Record<HomeKind, string> = { public: '公營房屋', private: '私人住宅', village: '鄉村' }
 const REGION_LABEL: Record<Region, string> = { hk: '港島', kln: '九龍', nt: '新界' }
-/** Top of the price layer's scale, HK$ per m²; one band per 40,000. */
 const PRICE_TOP = 240000
-const ZOOM_MAX = 8
 const FLASH_MS = 2500
 const MAX_FLASH = 600
-/** Zoom and how long the marker stays when news opens the map at its place. */
-const FOCUS_ZOOM = 4
 const MARKER_MS = 6000
-
-/** A request from the news to show a place; `key` tells repeated requests for the same place apart. */
-export interface MapFocus {
-  place: Place
-  key: number
-}
-
-interface LayerData {
-  people: Record<HomeKind, number>
-  prices: Record<Region, number>
-  coverage: Uint8Array
-  served: number
-}
-
-interface View {
-  z: number
-  cx: number
-  cy: number
-}
-
-const FULL: View = { z: 1, cx: MAP_COLS / 2, cy: MAP_ROWS / 2 }
+export const MINE_COLOUR = '#d6336c'
+const FULL = districtCamera(DISTRICTS.find((d) => d.id === 'all')!)
+const date = (t: number) => `${yearOf(t)} 年 ${monthOf(t)} 月`
+export interface MapFocus { place: Place; key: number }
+interface LayerData { people: Record<HomeKind, number>; prices: Record<Region, number>; coverage: Uint8Array; served: number }
 
 export function cssColour(el: Element, name: string, fallback: string): [number, number, number] {
-  const v = getComputedStyle(el).getPropertyValue(name).trim()
-  return hexToRgb(/^#[0-9a-f]{6}$/i.test(v) ? v : fallback)
+  const value = getComputedStyle(el).getPropertyValue(name).trim()
+  return hexToRgb(/^#[0-9a-f]{6}$/i.test(value) ? value : fallback)
 }
-
 /** One pixel per cell, coloured for the layer; without layer data, land use. */
 export function layerBitmap(map: CityMap, layer: MapLayer, data: LayerData | undefined, sea: [number, number, number], muted: [number, number, number]) {
   const canvas = document.createElement('canvas')
@@ -95,187 +61,42 @@ export function layerBitmap(map: CityMap, layer: MapLayer, data: LayerData | und
   return canvas
 }
 
-export interface MapSize {
-  /** CSS pixels. */
-  w: number
-  h: number
-  /** Device pixels per cell when the whole map is shown. */
-  base: number
-}
 
-/** Sizes a map frame so each cell is a whole number of device pixels; tracks the frame's width. */
+export interface MapSize { w: number; h: number; dpr: number }
+/** Reserve space for either projection and track viewport / device pixel ratio changes. */
 export function useMapSize(frameRef: RefObject<HTMLDivElement | null>, maxHeight: number): MapSize {
-  const [size, setSize] = useState<MapSize>({ w: 0, h: 0, base: 1 })
+  const [size, setSize] = useState<MapSize>({ w: 0, h: 0, dpr: 1 })
   useEffect(() => {
     const frame = frameRef.current
     if (!frame) return
     const update = () => {
-      const dpr = window.devicePixelRatio || 1
       const w = frame.clientWidth
-      const maxH = Math.min(maxHeight, window.innerHeight * 0.6)
-      let base = Math.max(1, Math.floor((w * dpr) / MAP_COLS))
-      let h = Math.ceil((MAP_ROWS * base) / dpr)
-      if (h > maxH) {
-        base = Math.max(1, Math.floor((maxH * dpr) / MAP_ROWS))
-        h = Math.ceil((MAP_ROWS * base) / dpr)
-      }
-      setSize({ w, h, base })
+      const h = Math.round(Math.min(maxHeight, window.innerHeight * 0.6, Math.max(300, w * 0.55)))
+      const dpr = window.devicePixelRatio || 1
+      setSize((before) => before.w === w && before.h === h && before.dpr === dpr ? before : { w, h, dpr })
     }
     update()
     const ro = new ResizeObserver(update)
     ro.observe(frame)
-    return () => ro.disconnect()
+    window.addEventListener('resize', update)
+    return () => { ro.disconnect(); window.removeEventListener('resize', update) }
   }, [frameRef, maxHeight])
   return size
 }
-
-interface DrawOptions {
-  bitmap: HTMLCanvasElement
-  map: CityMap
-  t: number
-  /** Canvas size in device pixels. */
-  W: number
-  H: number
-  cellPx: number
-  /** Centre of the view, in cells. */
-  cx: number
-  cy: number
-  flash: number[]
-  dpr: number
-  /** Sea colour; read from the canvas's theme when it is on the page. */
-  sea?: [number, number, number]
-  /** A place the news pointed to, ringed on top of everything. */
-  marker?: Place | null
-  /** Lines under construction, drawn dashed. */
-  railBuilding?: Railway
-  /** The city's own developments and lines, outlined. */
-  outline?: { cells: number[]; rail: Railway } | null
-}
-
-/** Colour of the outline around the city's own developments. */
-export const MINE_COLOUR = '#d6336c'
-
-/** Draws the layer bitmap, haze, flashing cells, railway and stations (names once zoomed in). */
-export function drawMap(canvas: HTMLCanvasElement, o: DrawOptions) {
-  const { bitmap, map, W, H, cellPx, dpr } = o
-  canvas.width = W
-  canvas.height = H
-  const ctx = canvas.getContext('2d')!
-  const sea = o.sea ?? cssColour(canvas, '--map-sea', KIND_COLOUR.sea)
-  ctx.fillStyle = `rgb(${sea.join(',')})`
-  ctx.fillRect(0, 0, W, H)
-  const ox = Math.round(W / 2 - o.cx * cellPx)
-  const oy = Math.round(H / 2 - o.cy * cellPx)
-  ctx.imageSmoothingEnabled = false
-  ctx.drawImage(bitmap, ox, oy, MAP_COLS * cellPx, MAP_ROWS * cellPx)
-  // Haze covers the whole frame, sea included, so it does not outline the map.
-  if (map.haze > 0) {
-    ctx.fillStyle = `rgba(150, 150, 150, ${(map.haze * 0.25).toFixed(3)})`
-    ctx.fillRect(0, 0, W, H)
-  }
-  const X = (e: number) => ox + ((e - MAP_ORIGIN.e) / MAP_CELL) * cellPx
-  const Y = (n: number) => oy + ((MAP_ORIGIN.n - n) / MAP_CELL) * cellPx
-
-  if (o.outline) {
-    ctx.strokeStyle = MINE_COLOUR
-    ctx.lineWidth = Math.max(1.5 * dpr, cellPx * 0.15)
-    for (const c of o.outline.cells) {
-      ctx.strokeRect(ox + (c % MAP_COLS) * cellPx + 0.5, oy + Math.floor(c / MAP_COLS) * cellPx + 0.5, cellPx - 1, cellPx - 1)
-    }
-  }
-
-  for (const c of o.flash) {
-    ctx.strokeStyle = '#ffd400'
-    ctx.lineWidth = Math.max(1, dpr)
-    ctx.strokeRect(ox + (c % MAP_COLS) * cellPx + 0.5, oy + Math.floor(c / MAP_COLS) * cellPx + 0.5, cellPx - 1, cellPx - 1)
-  }
-
-  const lw = Math.min(4 * dpr, Math.max(1.5 * dpr, cellPx * 0.3))
-  ctx.lineCap = 'round'
-  const stroke = (segments: RailSegment[]) => {
-    ctx.beginPath()
-    for (const s of segments) {
-      ctx.moveTo(X(s.from[0]), Y(s.from[1]))
-      ctx.lineTo(X(s.to[0]), Y(s.to[1]))
-    }
-    ctx.stroke()
-  }
-  if (o.outline?.rail.segments.length) {
-    ctx.strokeStyle = MINE_COLOUR
-    ctx.lineWidth = lw + 5 * dpr
-    stroke(o.outline.rail.segments)
-  }
-  if (o.railBuilding?.segments.length) {
-    ctx.setLineDash([3 * lw, 2 * lw])
-    for (const [colour, width] of [['rgba(255,255,255,0.9)', lw + 2 * dpr], ['#3d3d3d', lw]] as const) {
-      ctx.strokeStyle = colour
-      ctx.lineWidth = width
-      stroke(o.railBuilding.segments)
-    }
-    ctx.setLineDash([])
-  }
-  for (const [colour, width] of [['rgba(255,255,255,0.9)', lw + 2 * dpr], ['#3d3d3d', lw]] as const) {
-    ctx.strokeStyle = colour
-    ctx.lineWidth = width
-    stroke(map.rail.segments)
-  }
-  const r = Math.min(5 * dpr, Math.max(2 * dpr, cellPx * 0.4))
-  ctx.fillStyle = '#3d7a4a'
-  for (const s of lightRailStops(o.t)) {
-    ctx.beginPath()
-    ctx.arc(X(s.e), Y(s.n), r * 0.45, 0, Math.PI * 2)
-    ctx.fill()
-  }
-  ctx.lineWidth = 1.5 * dpr
-  ctx.strokeStyle = '#3d3d3d'
-  ctx.fillStyle = '#ffffff'
-  for (const s of map.rail.stations) {
-    ctx.beginPath()
-    ctx.arc(X(s.e), Y(s.n), r, 0, Math.PI * 2)
-    ctx.fill()
-    ctx.stroke()
-  }
-  if (cellPx >= 10 * dpr) {
-    ctx.font = `${12 * dpr}px ${getComputedStyle(canvas).fontFamily}`
-    ctx.lineWidth = 3 * dpr
-    ctx.strokeStyle = 'rgba(255,255,255,0.9)'
-    ctx.fillStyle = '#1f2328'
-    for (const s of map.rail.stations) {
-      ctx.strokeText(s.name, X(s.e) + r + 2 * dpr, Y(s.n) - r)
-      ctx.fillText(s.name, X(s.e) + r + 2 * dpr, Y(s.n) - r)
-    }
-  }
-
-  if (o.marker) {
-    const mx = X(o.marker[0])
-    const my = Y(o.marker[1])
-    const ring = Math.max(10 * dpr, cellPx * 1.5)
-    for (const [colour, width] of [['rgba(255,255,255,0.95)', 5 * dpr], ['#c9252d', 2.5 * dpr]] as const) {
-      ctx.strokeStyle = colour
-      ctx.lineWidth = width
-      ctx.beginPath()
-      ctx.arc(mx, my, ring, 0, Math.PI * 2)
-      ctx.stroke()
-    }
-    ctx.fillStyle = '#c9252d'
-    ctx.beginPath()
-    ctx.arc(mx, my, 3 * dpr, 0, Math.PI * 2)
-    ctx.fill()
-  }
-}
-
-/** Follows the light or dark theme, so bitmaps can re-read the map colours. */
 export function useDarkTheme(): boolean {
-  const [dark, setDark] = useState(() => typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+  const readTheme = () => document.documentElement.dataset.theme === 'dark'
+    || (document.documentElement.dataset.theme !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+  const [dark, setDark] = useState(readTheme)
   useEffect(() => {
     const mq = window.matchMedia('(prefers-color-scheme: dark)')
-    const update = () => setDark(mq.matches)
+    const update = () => setDark(readTheme())
+    const observer = new MutationObserver(update)
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
     mq.addEventListener('change', update)
-    return () => mq.removeEventListener('change', update)
+    return () => { observer.disconnect(); mq.removeEventListener('change', update) }
   }, [])
   return dark
 }
-
 function Legend({ layer, data }: { layer: MapLayer; data: LayerData }) {
   if (layer === 'land') {
     return (
@@ -332,241 +153,176 @@ function Legend({ layer, data }: { layer: MapLayer; data: LayerData }) {
   )
 }
 
-interface MapViewProps {
-  game: GameState
-  focus?: MapFocus | null
-  /** Called once the map has moved to `focus`, so it is not shown again when the map remounts. */
-  onFocused?: () => void
-}
+
+interface MapViewProps { game: GameState; focus?: MapFocus | null; onFocused?: () => void }
 
 export function MapView({ game, focus, onFocused }: MapViewProps) {
   const [layer, setLayer] = useState<MapLayer>(() => loadMapPrefs().layer)
   const [mine, setMine] = useState(() => loadMapPrefs().mine)
-  const [view, setView] = useState<View>(FULL)
+  const [projection, setProjection] = useState<Projection>(() => loadMapPrefs().projection)
+  const [camera, setCamera] = useState<Camera>(FULL)
+  const [district, setDistrict] = useState('all')
+  const [past, setPast] = useState<number | null>(null)
   const [flash, setFlash] = useState<number[]>([])
   const [marker, setMarker] = useState<Place | null>(null)
   const dark = useDarkTheme()
   const frameRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const previous = useRef<Uint8Array | null>(null)
-  const pointers = useRef(new Map<number, { x: number; y: number }>())
-  const gesture = useRef<{ x: number; y: number; dist: number; view: View } | null>(null)
-
-  const t = Math.min(game.status === 'ended' ? game.t - 1 : game.t, LAST_MONTH_INDEX)
-  const quarter = Math.floor(t / 3)
-  // The map changes slowly; redraw it every three months rather than every tick. Work under
-  // construction shows as building sites, and lines under construction dashed.
+  const previous = useRef<{ grid: Uint8Array; past: number | null } | null>(null)
+  const points = useRef(new Map<number, { x: number; y: number }>())
+  const gesture = useRef<{ x: number; y: number; distance: number; camera: Camera } | null>(null)
+  const [visible, setVisible] = useState(true)
+  const currentT = Math.min(game.status === 'ended' ? game.t - 1 : game.t, LAST_MONTH_INDEX)
+  const quarter = Math.floor(currentT / 3)
   const works = useMemo(() => cityWorks(game), [game, quarter, game.status])
-  const map = works.map
+  const moments = useMemo(() => mapMoments(game, currentT), [game, game.snapshots.length, currentT])
+  const moment = past === null ? undefined : moments.find((m) => m.t === past)
+  const historical = useMemo(() => moment ? sceneAtMoment(moment) : null, [moment?.t, moment?.metrics])
+  const scene: MapScene = historical ?? { ...works, t: currentT }
+  const map = scene.map
+  const t = scene.t
+  const metric = moment?.metrics ?? metricsNow(game)
+  const effectiveProjection = layer === 'land' ? projection : 'plan'
+  const size = useMapSize(frameRef, 480)
 
   const data = useMemo<LayerData>(() => {
-    const m = metricsNow(game)
-    const people = peoplePerCell(map.grid, m.population)
+    const people = peoplePerCell(map.grid, metric.population)
     const coverage = railCoverage([...map.rail.stations, ...lightRailStops(t)])
-    return {
-      people,
-      prices: regionalPrices(t, m.priceIndex / realMetrics(t).priceIndex),
-      coverage,
-      served: railServedShare(map.grid, coverage, people),
-    }
-  }, [map])
+    return { people, prices: regionalPrices(t, metric.priceIndex / realMetrics(t).priceIndex), coverage, served: railServedShare(map.grid, coverage, people) }
+  }, [map, t, metric.population, metric.priceIndex])
 
-  // Cells that changed since the last redraw flash for a moment.
+  useEffect(() => {
+    const observer = new IntersectionObserver(([entry]) => setVisible(entry.isIntersecting), { rootMargin: '80px 0px' })
+    observer.observe(frameRef.current!)
+    return () => observer.disconnect()
+  }, [])
+
   useEffect(() => {
     const before = previous.current
-    previous.current = map.grid
-    if (!before) return
+    previous.current = { grid: map.grid, past }
+    setFlash([])
+    if (!before || before.past !== past || past !== null || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
     const changed: number[] = []
-    for (let i = 0; i < map.grid.length && changed.length <= MAX_FLASH; i++) if (map.grid[i] !== before[i]) changed.push(i)
-    if (changed.length === 0 || changed.length > MAX_FLASH) return
+    for (let i = 0; i < map.grid.length && changed.length <= MAX_FLASH; i++) if (map.grid[i] !== before.grid[i]) changed.push(i)
+    if (!changed.length || changed.length > MAX_FLASH) return
     setFlash(changed)
     const id = window.setTimeout(() => setFlash([]), FLASH_MS)
     return () => window.clearTimeout(id)
-  }, [map])
+  }, [map.grid, past])
 
-  // News asked to show a place: zoom in on it and ring it for a while.
   useEffect(() => {
     if (!focus) return
-    const [e, n] = focus.place
-    setView({ z: FOCUS_ZOOM, cx: (e - MAP_ORIGIN.e) / MAP_CELL, cy: (MAP_ORIGIN.n - n) / MAP_CELL })
+    const [cx, cy] = gridPoint(...focus.place)
+    setPast(null)
+    setDistrict('')
+    setCamera(clampCamera({ cx, cy, cols: 28, rows: 24, zoom: 1 }))
     setMarker(focus.place)
     onFocused?.()
-    // Only a new request moves the map.
   }, [focus?.key])
-
   useEffect(() => {
     if (!marker) return
     const id = window.setTimeout(() => setMarker(null), MARKER_MS)
     return () => window.clearTimeout(id)
   }, [marker])
 
-  const size = useMapSize(frameRef, 480)
-
   const bitmap = useMemo(() => {
     const frame = frameRef.current
-    if (!frame) return null
+    if (!frame || layer === 'land') return null
     return layerBitmap(map, layer, data, cssColour(frame, '--map-sea', KIND_COLOUR.sea), cssColour(frame, '--map-muted', '#e6e8eb'))
-    // `dark` and the size re-read the theme colours once the frame exists.
   }, [map, layer, data, dark, size.w])
 
-  const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
-  const W = Math.round(size.w * dpr)
-  const H = Math.round(size.h * dpr)
-  const cellPx = Math.max(1, Math.round(size.base * view.z))
-
-  /** Keeps the map from sliding out of the frame. */
-  const clampView = (v: View): View => {
-    const px = Math.max(1, Math.round(size.base * v.z))
-    const hw = W / 2 / px
-    const hh = H / 2 / px
-    return {
-      z: v.z,
-      cx: MAP_COLS <= 2 * hw ? MAP_COLS / 2 : Math.min(MAP_COLS - hw, Math.max(hw, v.cx)),
-      cy: MAP_ROWS <= 2 * hh ? MAP_ROWS / 2 : Math.min(MAP_ROWS - hh, Math.max(hh, v.cy)),
-    }
-  }
-  const v = clampView(view)
-
   useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas || !bitmap || W === 0) return
-    const outline = mine ? { cells: works.extraCells, rail: works.extraRail } : null
-    drawMap(canvas, { bitmap, map, t, W, H, cellPx, cx: v.cx, cy: v.cy, flash, dpr, marker, railBuilding: works.railBuilding, outline })
-  }, [bitmap, map, works, mine, flash, W, H, cellPx, v.cx, v.cy, dpr, t, marker])
+    if (!canvasRef.current || !size.w || !visible) return
+    renderScene(canvasRef.current, {
+      frame: scene, camera, projection: effectiveProjection, width: size.w, height: size.h, dpr: size.dpr, dark, bitmap,
+      outline: mine && !historical ? { cells: works.extraCells, rail: works.extraRail } : null,
+      flash: historical ? [] : flash, marker,
+      sea: getComputedStyle(canvasRef.current).getPropertyValue('--map-sea').trim(),
+    })
+  }, [map, t, works, historical, camera, effectiveProjection, size, dark, bitmap, mine, flash, marker, visible])
 
-  // Ctrl or Cmd with the wheel zooms; a plain wheel keeps scrolling the page.
+  const zoomAt = (factor: number, x?: number, y?: number, from = camera) =>
+    setCamera(zoomCamera(from, effectiveProjection, size.w, size.h, factor, x, y))
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
-    const onWheel = (e: WheelEvent) => {
+    const wheel = (e: WheelEvent) => {
       if (!e.ctrlKey && !e.metaKey) return
       e.preventDefault()
       const rect = canvas.getBoundingClientRect()
-      zoomAt(e.deltaY < 0 ? 1.25 : 0.8, (e.clientX - rect.left) * dpr, (e.clientY - rect.top) * dpr)
+      zoomAt(e.deltaY < 0 ? 1.25 : 0.8, e.clientX - rect.left, e.clientY - rect.top)
     }
-    canvas.addEventListener('wheel', onWheel, { passive: false })
-    return () => canvas.removeEventListener('wheel', onWheel)
+    canvas.addEventListener('wheel', wheel, { passive: false })
+    return () => canvas.removeEventListener('wheel', wheel)
   })
 
-  /** Zooms by a factor, keeping the point under (px, py) device pixels in place. */
-  function zoomAt(factor: number, px = W / 2, py = H / 2, from: View = v) {
-    const z = Math.min(ZOOM_MAX, Math.max(1, from.z * factor))
-    const oldPx = Math.max(1, Math.round(size.base * from.z))
-    const newPx = Math.max(1, Math.round(size.base * z))
-    const mx = from.cx + (px - W / 2) / oldPx
-    const my = from.cy + (py - H / 2) / oldPx
-    setView(clampView({ z, cx: mx - (px - W / 2) / newPx, cy: my - (py - H / 2) / newPx }))
-  }
-
-  const devicePoint = (e: ReactPointerEvent) => {
+  const point = (e: ReactPointerEvent) => {
     const rect = canvasRef.current!.getBoundingClientRect()
-    return { x: (e.clientX - rect.left) * dpr, y: (e.clientY - rect.top) * dpr }
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top }
   }
-
   const startGesture = () => {
-    const pts = [...pointers.current.values()]
-    if (pts.length === 0) {
-      gesture.current = null
-      return
-    }
-    const x = pts.reduce((a, p) => a + p.x, 0) / pts.length
-    const y = pts.reduce((a, p) => a + p.y, 0) / pts.length
-    const dist = pts.length > 1 ? Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) : 0
-    gesture.current = { x, y, dist, view: v }
+    const pts = [...points.current.values()]
+    gesture.current = pts.length ? {
+      x: pts.reduce((sum, p) => sum + p.x, 0) / pts.length,
+      y: pts.reduce((sum, p) => sum + p.y, 0) / pts.length,
+      distance: pts.length > 1 ? Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) : 0,
+      camera,
+    } : null
   }
-
-  const onPointerDown = (e: ReactPointerEvent) => {
-    e.currentTarget.setPointerCapture(e.pointerId)
-    pointers.current.set(e.pointerId, devicePoint(e))
-    startGesture()
+  const pointerDown = (e: ReactPointerEvent) => { e.currentTarget.setPointerCapture(e.pointerId); points.current.set(e.pointerId, point(e)); startGesture() }
+  const pointerMove = (e: ReactPointerEvent) => {
+    if (!points.current.has(e.pointerId) || !gesture.current) return
+    points.current.set(e.pointerId, point(e))
+    const pts = [...points.current.values()], g = gesture.current
+    const x = pts.reduce((sum, p) => sum + p.x, 0) / pts.length
+    const y = pts.reduce((sum, p) => sum + p.y, 0) / pts.length
+    const factor = pts.length > 1 && g.distance > 0 ? Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) / g.distance : 1
+    const zoomed = zoomCamera(g.camera, effectiveProjection, size.w, size.h, factor, g.x, g.y)
+    setCamera(panCamera(zoomed, effectiveProjection, size.w, size.h, x - g.x, y - g.y))
   }
-
-  const onPointerMove = (e: ReactPointerEvent) => {
-    if (!pointers.current.has(e.pointerId) || !gesture.current) return
-    pointers.current.set(e.pointerId, devicePoint(e))
-    const g = gesture.current
-    const pts = [...pointers.current.values()]
-    if (pts.length > 1 && g.dist > 0) {
-      const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y)
-      zoomAt(dist / g.dist, g.x, g.y, g.view)
-      return
-    }
-    const px = Math.max(1, Math.round(size.base * g.view.z))
-    setView(clampView({ z: g.view.z, cx: g.view.cx - (pts[0].x - g.x) / px, cy: g.view.cy - (pts[0].y - g.y) / px }))
-  }
-
-  const onPointerUp = (e: ReactPointerEvent) => {
-    pointers.current.delete(e.pointerId)
-    startGesture()
-  }
-
-  const chooseLayer = (id: MapLayer) => {
-    setLayer(id)
-    saveMapPrefs({ ...loadMapPrefs(), layer: id })
-  }
-
-  const toggleMine = () => {
-    setMine(!mine)
-    saveMapPrefs({ ...loadMapPrefs(), mine: !mine })
-  }
-  const building = works.works.filter((w) => w.state === 'building').length
-
+  const pointerUp = (e: ReactPointerEvent) => { points.current.delete(e.pointerId); startGesture() }
+  const chooseDistrict = (id: string) => { setDistrict(id); setCamera(districtCamera(DISTRICTS.find((d) => d.id === id)!)) }
+  const chooseProjection = (value: Projection) => { setProjection(value); saveMapPrefs({ ...loadMapPrefs(), projection: value }) }
+  const building = historical ? 0 : works.works.filter((w) => w.state === 'building').length
   const coarse = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches
 
   return (
     <div className="map-view">
       <div className="map-tools">
         <div className="segmented small-seg" role="group" aria-label="圖層">
-          {LAYERS.map((l) => (
-            <button key={l.id} className={layer === l.id ? 'active' : ''} aria-pressed={layer === l.id} onClick={() => chooseLayer(l.id)}>
-              {l.label}
-            </button>
-          ))}
+          {LAYERS.map((l) => <button key={l.id} className={layer === l.id ? 'active' : ''} aria-pressed={layer === l.id} onClick={() => { setLayer(l.id); saveMapPrefs({ ...loadMapPrefs(), layer: l.id }) }}>{l.label}</button>)}
         </div>
         <div className="segmented small-seg">
-          <button className={mine ? 'active mine-toggle' : 'mine-toggle'} aria-pressed={mine} onClick={toggleMine}>
-            你的發展
-          </button>
+          <button disabled={!!historical} className={mine ? 'active mine-toggle' : 'mine-toggle'} aria-pressed={mine} onClick={() => { setMine(!mine); saveMapPrefs({ ...loadMapPrefs(), mine: !mine }) }}>你的發展</button>
         </div>
       </div>
+      <div className="map-tools map-places">
+        <label>地區<select aria-label="地圖地區" value={district} onChange={(e) => chooseDistrict(e.target.value)}>{!district && <option value="">自訂視野</option>}{DISTRICTS.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></label>
+        <div className="segmented small-seg" role="group" aria-label="地圖畫法">
+          <button disabled={layer !== 'land'} className={effectiveProjection === 'iso' ? 'active' : ''} aria-pressed={effectiveProjection === 'iso'} onClick={() => chooseProjection('iso')}>2.5D</button>
+          <button className={effectiveProjection === 'plan' ? 'active' : ''} aria-pressed={effectiveProjection === 'plan'} onClick={() => chooseProjection('plan')}>俯視</button>
+        </div>
+      </div>
+      <div className="map-tools map-years">
+        <label>城市年份<select aria-label="城市年份" value={past ?? 'now'} onChange={(e) => { setPast(e.target.value === 'now' ? null : Number(e.target.value)); setMarker(null) }}><option value="now">現在 · {date(currentT)}</option>{moments.filter((m) => m.t < currentT).map((m) => <option key={m.t} value={m.t}>{m.label}</option>)}</select></label>
+        {historical && <button className="button small-button" onClick={() => setPast(null)}>返回現在</button>}
+      </div>
+      {layer !== 'land' && <p className="map-note">分析圖層以俯視顯示；返回土地用途可繼續查看 2.5D。</p>}
       <div className="map-frame" ref={frameRef} style={{ height: size.h || undefined }}>
-        <canvas
-          ref={canvasRef}
-          className={view.z > 1 ? 'zoomed' : ''}
-          style={{ width: size.w, height: size.h }}
-          role="img"
-          aria-label={`${yearOf(t)} 年的香港地圖：${LAYERS.find((l) => l.id === layer)!.label}`}
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerCancel={onPointerUp}
-          onDoubleClick={(e) => {
-            const rect = e.currentTarget.getBoundingClientRect()
-            zoomAt(2, (e.clientX - rect.left) * dpr, (e.clientY - rect.top) * dpr)
-          }}
-        />
+        <canvas ref={canvasRef} className="city-canvas" style={{ width: size.w, height: size.h }} role="img"
+          aria-label={`${date(t)}的香港地圖：${LAYERS.find((l) => l.id === layer)!.label}，${effectiveProjection === 'iso' ? '2.5D' : '俯視'}`}
+          onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={pointerUp} onLostPointerCapture={pointerUp}
+          onDoubleClick={(e) => { const rect = e.currentTarget.getBoundingClientRect(); zoomAt(2, e.clientX - rect.left, e.clientY - rect.top) }} />
         <div className="map-zoom">
-          <button className="button icon" onClick={() => zoomAt(2)} disabled={view.z >= ZOOM_MAX} aria-label="放大">
-            ＋
-          </button>
-          <button className="button icon" onClick={() => zoomAt(0.5)} disabled={view.z <= 1} aria-label="縮小">
-            −
-          </button>
-          <button className="button icon small-text" onClick={() => setView(FULL)} disabled={view.z <= 1} aria-label="全港">
-            全港
-          </button>
+          <button className="button icon" onClick={() => zoomAt(1.6)} disabled={zoomCamera(camera, effectiveProjection, size.w, size.h, 1.6).zoom <= camera.zoom + 1e-6} aria-label="放大">＋</button>
+          <button className="button icon" onClick={() => zoomAt(1 / 1.6)} disabled={camera.zoom <= 1} aria-label="縮小">−</button>
+          <button className="button icon small-text" onClick={() => chooseDistrict('all')} aria-label="全港">全港</button>
         </div>
       </div>
       <Legend layer={layer} data={data} />
-      {mine && (
-        <p className="map-note">
-          <span className="swatch-line" style={{ borderColor: MINE_COLOUR }} />
-          框出的是你的撥款和政策帶來的新發展，包括施工中的工地和鐵路。
-          {works.extraCells.length === 0 && works.extraRail.segments.length === 0 && '暫時沒有。'}
-        </p>
-      )}
-      {building > 0 && <p className="map-note">「建造中」的格子和虛線鐵路是正在施工的工程，預算面板有詳情。</p>}
-      <p className="map-note">{coarse ? '拖動移動，兩指縮放。' : '拖動移動；按 ＋／−、雙擊或 Ctrl＋滾輪縮放。'}新落成的地方會閃一下。</p>
+      {historical ? <p className="map-note">正在看自己城市的 {moment!.label}，年份切換保留同一視野。過往畫面只顯示當年用地及已通車鐵路；施工進度未有紀錄，「你的發展」暫不顯示。</p> : mine && <p className="map-note"><span className="swatch-line" style={{ borderColor: MINE_COLOUR }} />框出的是你的撥款和政策帶來的新發展，包括施工中的工地和鐵路。{works.extraCells.length === 0 && works.extraRail.segments.length === 0 && '暫時沒有。'}</p>}
+      {building > 0 && <p className="map-note">吊臂工地和虛線鐵路是正在施工的工程，預算面板有詳情。</p>}
+      <p className="map-note">{coarse ? '拖動移動，兩指縮放。' : '拖動移動；按 ＋／−、雙擊或 Ctrl＋滾輪縮放。'}每格 250 × 250 米；樓群及高度是用地示意。</p>
     </div>
   )
 }
