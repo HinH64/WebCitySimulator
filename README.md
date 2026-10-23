@@ -37,6 +37,8 @@ npm run images     # 用 Chrome 重新產生分享預覽圖和主畫面圖示（
 npm run data:map   # 重新下載地圖數據（土地用途、鐵路站、分區樓價）；--skip-land 跳過較慢的土地用途
 ```
 
+3e.1 的城市發展樣板：在開發伺服器開啟 `/city-study.html`，可比較六種玩法、不同年份和地區，以及 2D／2.5D 畫法；遊戲主入口仍是 `/`。說明及第一輪結果見 [docs/CITY-STUDY.md](docs/CITY-STUDY.md)。
+
 結構：
 
 ```
