@@ -43,7 +43,14 @@ export interface PolicyEffect {
   green?: number
   /** Extra growth for one sector, percentage points per year. */
   sectorBoost?: SectorId
+  /** Old private flats pulled down for rebuilding, 萬 per year. */
+  demolish?: number
+  /** Private flats completed where old ones came down, 萬 per year, REBUILD_MONTHS later. */
+  rebuild?: number
 }
+
+/** Months from pulling down old flats to the new ones being finished. */
+export const REBUILD_MONTHS = 66
 
 export type PolicyCategory = 'housing' | 'transport' | 'economy' | 'social' | 'environment' | 'tax'
 
@@ -206,6 +213,48 @@ export const POLICIES: PolicyDef[] = [
       light: { priceDrift: -0.0075, stampFactor: 1.07, growth: -0.05 },
       on: { priceDrift: -0.015, stampFactor: 1.15, growth: -0.1 },
     },
+  },
+  {
+    id: 'renewal',
+    category: 'housing',
+    area: 'housing',
+    unpopular: { fast: 2 },
+    label: '市區重建',
+    description: '收購和拆卸殘舊樓宇，重建成更多更安全的新樓。重建期間單位減少、樓價短期略升，約五年半後建回更多單位；要額外開支，加快重建也會惹來街坊反對。',
+    levels: [
+      { id: 'off', label: '少量' },
+      { id: 'normal', label: '一般' },
+      { id: 'fast', label: '加快' },
+    ],
+    availableFrom: [1997, 7],
+    real: [
+      { from: [1997, 7], level: 'off' },
+      { from: [2001, 5], level: 'normal' },
+    ],
+    // Rebuilt sites hold about twice the flats of the old tenements.
+    effects: {
+      off: {},
+      normal: { cost: 10, demolish: 0.1, rebuild: 0.2, welfare: 0.3 },
+      fast: { cost: 25, demolish: 0.4, rebuild: 0.8, welfare: 0.8 },
+    },
+  },
+  {
+    id: 'inspection',
+    category: 'housing',
+    area: 'housing',
+    unpopular: { on: 1 },
+    label: '強制驗樓',
+    description: '樓齡 30 年或以上的私人樓宇要定期驗樓和維修。減少外牆剝落和塌樓意外，颱風時損毀也較少，但業主要負擔維修費，會有怨言。',
+    levels: [
+      { id: 'off', label: '不設' },
+      { id: 'on', label: '實施' },
+    ],
+    availableFrom: [1997, 7],
+    real: [
+      { from: [1997, 7], level: 'off' },
+      { from: [2012, 6], level: 'on' },
+    ],
+    effects: { off: {}, on: { cost: 3, welfare: 0.3 } },
   },
   {
     id: 'minWage',

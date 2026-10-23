@@ -1,7 +1,7 @@
 import { DEBT, DEPARTMENTS, FUNDING_MAX, FUNDING_MIN, TAXES, TAX_INFO, type DeptId, type TaxId } from '../data/budget'
 import { CITY_EVENTS } from '../data/cityEvents'
 import { HISTORY_CHOICES, HISTORY_EVENTS, PARALLEL_EVENTS } from '../data/events'
-import { POLICIES, POLICY_BY_ID, type PolicyDef, type PolicyEffect } from '../data/policies'
+import { POLICIES, POLICY_BY_ID, REBUILD_MONTHS, type PolicyDef, type PolicyEffect } from '../data/policies'
 import { yearValue } from '../data/real'
 import { APPROVAL, grievances, newApproval, noteAnswer, updateApproval } from './approval'
 import { computeIndicators } from './indicators'
@@ -421,6 +421,11 @@ function applyPipeline(s: GameState): { landSale: number; money: number } {
       case 'landSale':
       case 'money':
         break
+      case 'redevelop':
+        // Flats leaving redevelopment have been rebuilt.
+        dev.redevelop += v
+        dev.renewed -= v
+        break
       default:
         dev[key] += v
     }
@@ -548,6 +553,14 @@ export function step(s: GameState) {
     schedule(s, t + 18, 'publicUnits', pubFast / 12)
     schedule(s, t + 48, 'privateUnits', (priv - landShare) / 12)
     schedule(s, t + 12, 'landSale', (priv - landShare) / 12)
+    // Urban renewal: old flats come down now, and more go back up REBUILD_MONTHS later.
+    const demolish = ((ep.demolish ?? 0) - (er.demolish ?? 0)) / 12
+    if (demolish !== 0) {
+      s.dev.privateUnits -= demolish
+      s.dev.redevelop += demolish
+      schedule(s, t + REBUILD_MONTHS, 'redevelop', -demolish)
+    }
+    schedule(s, t + REBUILD_MONTHS, 'privateUnits', ((ep.rebuild ?? 0) - (er.rebuild ?? 0)) / 12)
     s.dev.priceShift += ((ep.priceDrift ?? 0) - (er.priceDrift ?? 0)) / 12
     s.dev.lnProductivity += (growthActive(ep, year) - growthActive(er, year)) / 100 / 12
     s.dev.pop += ((ep.talent ?? 0) - (er.talent ?? 0)) / 12
@@ -686,7 +699,8 @@ export function step(s: GameState) {
     }
     let text = shown.text
     if (ev.shock && shown.main) {
-      const input = { m, real, quality: s.quality, flags: s.flags, netReserves: s.reserves - debt, monthlySpending: spendingTotal }
+      const uninspected = playerPolicyLevel(s, POLICY_BY_ID.inspection, t) === 'off' && realPolicyLevel('inspection', t) === 'on'
+      const input = { m, real, quality: s.quality, flags: s.flags, netReserves: s.reserves - debt, monthlySpending: spendingTotal, uninspected }
       const r = shockEffects(ev.shock, input)
       for (const e of r.effects) applyEffect(s, e, 1, t + 1, t + 1)
       if (r.note) text += r.note

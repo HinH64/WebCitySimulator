@@ -65,7 +65,7 @@ describe('news on the map', () => {
 
 describe('shocks', () => {
   const real = realMetrics(monthIndex(2020, 1))
-  const ready: ShockInput = { m: real, real, quality: fullQuality(), flags: { chp: 'centre' }, netReserves: 10000, monthlySpending: 500 }
+  const ready: ShockInput = { m: real, real, quality: fullQuality(), flags: { chp: 'centre' }, netReserves: 10000, monthlySpending: 500, uninspected: false }
 
   it('leaves a city as ready as real Hong Kong exactly as history had it', () => {
     for (const kind of ['epidemic', 'storm', 'financial'] as const) expect(shockEffects({ kind, size: 1.5 }, ready)).toEqual({ effects: [] })
@@ -91,6 +91,12 @@ describe('shocks', () => {
     const repairs = r.effects.find((e) => e.kind === 'stock' && e.key === 'money')
     expect(repairs && repairs.kind === 'stock' && repairs.v).toBeCloseTo(32, 6)
     expect(r.note).toContain('32 億元')
+  })
+
+  it('costs a city that never inspects its old buildings more in a storm', () => {
+    const r = shockEffects({ kind: 'storm', size: 1 }, { ...ready, uninspected: true })
+    expect(r.effects.some((e) => e.kind === 'stock' && e.key === 'money' && e.v > 0)).toBe(true)
+    expect(r.note).toContain('舊樓')
   })
 
   it('hits a city without three months of reserves harder in a financial crisis', () => {

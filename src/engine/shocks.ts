@@ -18,6 +18,8 @@ export interface ShockInput {
   netReserves: number
   /** Spending last month, 億. */
   monthlySpending: number
+  /** Old buildings go uninspected while real Hong Kong inspects them. */
+  uninspected: boolean
 }
 
 export interface ShockResult {
@@ -45,9 +47,12 @@ export function epidemicReadiness(c: ShockInput): number {
   return beds - 0.5 * (1 - c.quality.health) + (EPIDEMIC_PREPARATION[c.flags.chp] ?? 0)
 }
 
-/** Storms: run-down roads, slopes and drains (transport and environment upkeep), 0–1.4. */
+/** Uninspected old buildings lose this much more in a storm: windows, canopies, loose concrete. */
+const UNINSPECTED_DAMAGE = 0.1
+
+/** Storms: run-down roads, slopes and drains (transport and environment upkeep), and uninspected old buildings; 0–1.5. */
 export function stormDamage(c: ShockInput): number {
-  return 1 - c.quality.transport + (1 - c.quality.environment)
+  return 1 - c.quality.transport + (1 - c.quality.environment) + (c.uninspected ? UNINSPECTED_DAMAGE : 0)
 }
 
 /** Financial crises: how far reserves fall short of three months of spending, 0–1. */
@@ -79,7 +84,7 @@ export function shockEffects(shock: Shock, c: ShockInput): ShockResult {
           { kind: 'stock', key: 'money', v: repairs, at: 0, over: 6 },
           gdp(-0.5 * size * lost, 3),
         ],
-        note: `失修的道路、斜坡和渠道令災情更嚴重，修復要多花約 ${Math.round(repairs)} 億元。`,
+        note: `失修的${c.uninspected ? '舊樓、' : ''}道路、斜坡和渠道令災情更嚴重，修復要多花約 ${Math.round(repairs)} 億元。`,
       }
     }
     case 'financial': {

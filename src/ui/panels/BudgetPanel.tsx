@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { DEPARTMENTS, DEPT_INFO, FUNDING_MAX, FUNDING_MIN, type DeptId } from '../../data/budget'
 import { upcoming } from '../../engine/pipeline'
-import { cityWorks, suspended, type CityWork } from '../../engine/projects'
+import { cityWorks, flats, suspended, type CityWork, type WorkKind } from '../../engine/projects'
 import { levelAt } from '../../engine/real'
 import { baselines, setFunding } from '../../engine/sim'
 import { LAST_MONTH_INDEX, yearOf } from '../../engine/time'
@@ -35,11 +35,6 @@ interface Line {
   place?: Place
 }
 
-/** Homes (萬) as people would say it: 約 5,900 個 or 約 1.2 萬個. */
-function homes(units: number): string {
-  return units >= 1 ? `約 ${formatNumber(units, 1)} 萬個` : `約 ${formatNumber(Math.round(units * 100) * 100)} 個`
-}
-
 function workLine(w: CityWork, t: number): Line {
   const due = w.due !== undefined ? `${yearOf(w.due)} 年` : '數年內'
   if (w.kind === 'rail') {
@@ -48,10 +43,11 @@ function workLine(w: CityWork, t: number): Line {
     return { text: `${w.name}：撥款不足，${suspended(w.key, t) ? '部分服務暫停' : '未能通車'}`, tone: 'bad', place: w.place }
   }
   if (w.kind === 'industry') return { text: `${w.name}：${INDUSTRY_LABEL[w.use!]}已落成`, tone: 'plain', place: w.place }
-  if (w.state === 'delayed') return { text: `${w.name}：撥款不足，${homes(w.units)}單位延遲`, tone: 'bad', place: w.place }
-  if (w.state === 'built') return { text: `${w.name}：已建成${homes(w.units)}單位`, tone: 'plain', place: w.place }
+  if (w.kind === 'renewal') return { text: `${w.name}：${flats(w.unitsBuilding)}舊樓單位拆卸重建中`, tone: 'plain', place: w.place }
+  if (w.state === 'delayed') return { text: `${w.name}：撥款不足，${flats(w.units)}單位延遲`, tone: 'bad', place: w.place }
+  if (w.state === 'built') return { text: `${w.name}：已建成${flats(w.units)}單位`, tone: 'plain', place: w.place }
   if (w.clearing) return { text: `${w.name}：平整土地中，準備建屋`, tone: 'plain', place: w.place }
-  return { text: `${w.name}：${homes(w.unitsBuilding)}單位施工中，${due}起入伙`, tone: 'plain', place: w.place }
+  return { text: `${w.name}：${flats(w.unitsBuilding)}單位施工中，${due}起入伙`, tone: 'plain', place: w.place }
 }
 
 /** At most this many works a department; the rest are counted. */
@@ -61,12 +57,12 @@ const MAX_WORKS = 3
 function deptLines(game: GameState, d: DeptId, works: CityWork[]): Line[] {
   const t = game.t
   const lines: Line[] = []
-  const kind = d === 'housing' ? 'housing' : d === 'transport' ? 'rail' : d === 'economy' ? 'industry' : undefined
-  if (kind) {
+  const kinds: WorkKind[] = d === 'housing' ? ['housing', 'renewal'] : d === 'transport' ? ['rail'] : d === 'economy' ? ['industry'] : []
+  if (kinds.length) {
     // Under construction first (soonest due), then delayed, then the most recently finished.
     const builtAt = (w: CityWork) => game.works[w.key]?.built ?? 0
     const mine = works
-      .filter((w) => w.kind === kind)
+      .filter((w) => kinds.includes(w.kind))
       .sort((a, b) => {
         const rank = { building: 0, delayed: 1, built: 2 }
         return rank[a.state] - rank[b.state] || (a.due ?? 0) - (b.due ?? 0) || builtAt(b) - builtAt(a)

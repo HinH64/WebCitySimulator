@@ -30,7 +30,7 @@ import type { GameState, Metrics, NewsItem, Place, WorkLog } from './types'
  * news they make never changes the city's figures.
  */
 
-export type WorkKind = 'housing' | 'industry' | 'rail'
+export type WorkKind = 'housing' | 'industry' | 'rail' | 'renewal'
 export type WorkState = 'building' | 'built' | 'delayed'
 
 export interface CityWork {
@@ -68,6 +68,12 @@ const REAL_OPENING = new Map(RAIL_ROUTES.map((r) => [railKey(r.id), monthIndex(.
 /** A real line that would have opened a year or more ago: missing now means its service is suspended. */
 const SUSPENDED_AFTER = 12
 
+function kindOf(key: string): WorkKind {
+  if (ROUTES.has(key)) return 'rail'
+  const use = SITES.get(key)?.use
+  return use === undefined || use === 'housing' ? 'housing' : use === 'renewal' ? 'renewal' : 'industry'
+}
+
 /** Name for a development: real projects are named for their homes when the project is mostly something else. */
 function nameOf(key: string): string {
   const area = AREAS.get(key)
@@ -81,6 +87,8 @@ function ahead(s: Pick<GameState, 't' | 'pipeline'>, m: Metrics, months: number)
     ...m,
     publicUnits: m.publicUnits + upcoming(s, 'publicUnits', homes),
     privateUnits: m.privateUnits + upcoming(s, 'privateUnits', homes),
+    // Rebuilt flats come back as the old ones finish rebuilding; only the gain is new.
+    redeveloping: m.redeveloping + upcoming(s, 'redevelop', homes),
     railKm: m.railKm + upcoming(s, 'rail', Math.min(months, RAIL_AHEAD)),
   }
 }
@@ -132,22 +140,21 @@ function describe(now: CityChanges, later: CityChanges): CityWork[] {
 
   const works: CityWork[] = []
   for (const [key, g] of groups) {
-    const site = SITES.get(key)
-    const name = nameOf(key)
-    const kind = site && site.use !== 'housing' ? 'industry' : 'housing'
+    const kind = kindOf(key)
     const state: WorkState = g.building.length ? 'building' : g.built.length ? 'built' : 'delayed'
     const cells = (state === 'delayed' ? g.removed : g.built).map((c) => c.cell)
     works.push({
       key,
-      name,
+      name: nameOf(key),
       kind,
-      ...(kind === 'industry' ? { use: site!.use } : {}),
+      ...(kind === 'industry' ? { use: SITES.get(key)!.use } : {}),
       state,
       cells,
       building: g.building.map((c) => c.cell),
       units: homesIn(state === 'delayed' ? g.removed : g.built),
-      unitsBuilding: homesIn(g.building),
-      clearing: g.clearing && !g.building.some((c) => c.kind !== KIND_INDEX.construction),
+      // Old flats being rebuilt: the building sites stand where private flats were.
+      unitsBuilding: kind === 'renewal' ? g.building.length * unitsPerCell('private') : homesIn(g.building),
+      clearing: kind === 'housing' && g.clearing && !g.building.some((c) => c.kind !== KIND_INDEX.construction),
       place: centre([...cells, ...g.building.map((c) => c.cell)]),
     })
   }
@@ -170,7 +177,8 @@ function describe(now: CityChanges, later: CityChanges): CityWork[] {
  * Returns the works without real lines that would open on their own first: those are not the city's.
  */
 function addDue(works: CityWork[], s: GameState, m: Metrics, t: number, sectorMonth: number): CityWork[] {
-  const waiting = works.filter((w) => w.state === 'building' && !w.clearing)
+  // Rebuilding old flats takes REBUILD_MONTHS from when each comes down, so it has no one due date.
+  const waiting = works.filter((w) => w.state === 'building' && !w.clearing && w.kind !== 'renewal')
   for (const k of DUE_SAMPLES) {
     if (!waiting.some((w) => w.due === undefined)) break
     const at = cityChanges(ahead(s, m, k), t, sectorMonth)
@@ -217,7 +225,7 @@ export function cityWorks(s: GameState): CityWorks {
 
 // ---- News ----
 
-const INDUSTRY_OPENS: Record<Exclude<CandidateSite['use'], 'housing'>, string> = {
+const INDUSTRY_OPENS: Record<Exclude<CandidateSite['use'], 'housing' | 'renewal'>, string> = {
   finance: '第一批商廈落成，金融和專業公司陸續進駐。',
   trade: '物流設施落成，物流公司陸續進駐。',
   tourism: '新旅遊設施開幕，吸引大批旅客。',
@@ -232,6 +240,12 @@ export function suspended(key: string, since: number): boolean {
 
 type Step = Exclude<keyof WorkLog, 'realAt'>
 
+/** Flats (萬) as people say it: 約 6,000 個 or 約 1.2 萬個. */
+export function flats(units: number): string {
+  const n = (v: number, d: number) => new Intl.NumberFormat('zh-HK', { minimumFractionDigits: d, maximumFractionDigits: d }).format(v)
+  return units >= 1 ? `約 ${n(units, 1)} 萬個` : `約 ${n(Math.round(units * 100) * 100, 0)} 個`
+}
+
 function newsText(w: CityWork, what: Step, t: number, log: WorkLog): string {
   const due = w.due !== undefined ? `預計 ${yearOf(w.due)} 年` : '預計數年內'
   if (w.kind === 'rail') {
@@ -240,7 +254,12 @@ function newsText(w: CityWork, what: Step, t: number, log: WorkLog): string {
     if (what === 'delayed') return suspended(w.key, t) ? `${w.name}：鐵路撥款長期不足，部分服務暫停。` : `${w.name}：鐵路撥款不足，未能如期通車。`
     return suspended(w.key, log.delayed!) ? `${w.name}恢復全面服務。` : `${w.name}延誤多時，終於通車。`
   }
-  if (w.kind === 'industry') return `${w.name}：${INDUSTRY_OPENS[w.use as Exclude<CandidateSite['use'], 'housing'>]}`
+  if (w.kind === 'industry') return `${w.name}：${INDUSTRY_OPENS[w.use as keyof typeof INDUSTRY_OPENS]}`
+  if (w.kind === 'renewal') {
+    return what === 'building'
+      ? `${w.name}：大規模重建展開，殘舊唐樓陸續拆卸，新樓約五年半後落成。`
+      : `${w.name}：這一批重建完成，新樓落成，街道面貌一新。`
+  }
   if (what === 'building') return w.clearing ? `${w.name}：開始平整土地，準備興建屋邨。` : `${w.name}：新屋邨動工，${due}起入伙。`
   if (what === 'built') return `${w.name}：第一批新屋邨落成，居民陸續入伙。`
   if (what === 'delayed') return `${w.name}：房屋撥款不足，部分屋邨延遲落成。`
@@ -300,6 +319,11 @@ export function reportWorks(s: GameState, m: Metrics, t: number) {
     if (w.state === 'delayed' && log.delayed === undefined) report(s, w, 'delayed', t)
     if (Object.keys(log).length === 0) delete s.works[w.key]
   }
+  // Old districts whose batch of rebuilding has finished: its building sites are gone.
+  const present = new Set(works.map((w) => w.key))
+  for (const [key, log] of Object.entries(s.works)) {
+    if (kindOf(key) === 'renewal' && log.building !== undefined && log.built === undefined && !present.has(key)) report(s, workByKey(key), 'built', t)
+  }
 }
 
 /** A work known only by its key, for news about it. */
@@ -312,7 +336,7 @@ function workByKey(key: string): CityWork {
     Math.round(polygon.reduce((a, p) => a + p[0], 0) / polygon.length),
     Math.round(polygon.reduce((a, p) => a + p[1], 0) / polygon.length),
   ]
-  return { ...base, kind: site && site.use !== 'housing' ? 'industry' : 'housing', ...(site ? { use: site.use } : {}), place }
+  return { ...base, kind: kindOf(key), ...(site ? { use: site.use } : {}), place }
 }
 
 /**

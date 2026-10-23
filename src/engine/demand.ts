@@ -91,6 +91,7 @@ export function demandRows(s: GameState, m: Metrics): DemandRow[] {
       policy('cooling') !== 'off' ? '額外印花稅生效中，樓價升幅放慢' : undefined,
       policy('hos85') !== 'off' ? '房屋供應目標生效中，供應增加、樓價受壓' : undefined,
       policy('hos') === 'off' ? '沒有資助出售房屋，中低收入家庭只能輪候公屋或租樓' : undefined,
+      m.redeveloping >= 0.2 ? `約 ${nf(m.redeveloping, 1)} 萬個舊樓單位正在拆卸重建，暫時減少住宅供應` : undefined,
       qualityReason(s, 'housing', '公營屋邨'),
     ]),
   }

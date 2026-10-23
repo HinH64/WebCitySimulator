@@ -267,8 +267,8 @@ export interface CandidateSite {
   id: string
   name: string
   area: MapArea
-  /** What the site becomes: housing, or land for one of the industries. */
-  use: 'housing' | 'finance' | 'trade' | 'tourism' | 'professional'
+  /** What the site becomes: housing, land for one of the industries, or old flats rebuilt (renewal). */
+  use: 'housing' | 'finance' | 'trade' | 'tourism' | 'professional' | 'renewal'
   /** Earliest the site could be ready, if the city pushes for it. */
   earliest: YearMonth
   /** Only for the country park edge policy. */
@@ -291,6 +291,11 @@ export const CANDIDATE_SITES: CandidateSite[] = [
   { id: 'sunnyBay', name: '欣澳旅遊區', area: { polygon: [[820300, 821000], [822200, 821000], [822200, 822600], [820300, 822600]], kinds: ['sea', 'shrubGrass'] }, use: 'tourism', earliest: [2005, 1], source: '欣澳填海建議（2014 年）' },
   { id: 'taiLamEdge', name: '大欖郊野公園邊陲', area: { polygon: [[826300, 826300], [828600, 826300], [828600, 828000], [826300, 828000]], kinds: ['woodland', 'shrubGrass'] }, use: 'housing', earliest: [1998, 1], countryPark: true, source: '2017 年施政報告：研究在郊野公園邊陲建屋' },
   { id: 'maOnShanEdge', name: '馬鞍山郊野公園邊陲', area: { polygon: [[839800, 826500], [841500, 826500], [841500, 828000], [839800, 828000]], kinds: ['woodland', 'shrubGrass'] }, use: 'housing', earliest: [1998, 1], countryPark: true, source: '2017 年施政報告：研究在郊野公園邊陲建屋' },
+  // Old districts where a city that rebuilds faster than history has building sites (only old private flats, not post-1997 estates).
+  { id: 'yauMongRenewal', name: '油麻地及旺角舊區', area: { polygon: [[835000, 818700], [836200, 818700], [836200, 820800], [835000, 820800]], kinds: ['private'] }, use: 'renewal', earliest: [1997, 7], source: '市區重建局「油旺地區研究」（2021 年）' },
+  { id: 'shamShuiPoRenewal', name: '深水埗舊區', area: { polygon: [[834200, 820700], [835300, 820700], [835300, 822000], [834200, 822000]], kinds: ['private'] }, use: 'renewal', earliest: [1997, 7], source: '市區重建局深水埗重建項目' },
+  { id: 'toKwaWanRenewal', name: '土瓜灣舊區', area: { polygon: [[836900, 819100], [837800, 819100], [837800, 820600], [836900, 820600]], kinds: ['private'] }, use: 'renewal', earliest: [1997, 7], source: '市區重建局土瓜灣重建項目（2016 年起）' },
+  { id: 'kwunTongRenewal', name: '觀塘市中心', area: { polygon: [[840900, 818800], [841800, 818800], [841800, 819900], [840900, 819900]], kinds: ['private'] }, use: 'renewal', earliest: [1997, 7], source: '市區重建局觀塘市中心重建項目（2007 年起）' },
 ]
 
 export interface CandidateStation {

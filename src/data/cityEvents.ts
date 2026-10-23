@@ -162,10 +162,15 @@ export const CITY_EVENTS: CityEvent[] = [
   {
     id: 'oldBuilding',
     category: 'housing',
-    weight: (c) => 0.4 + 3 * (1 - c.quality.housing),
+    // Regular inspections catch most of it before it falls.
+    weight: (c) => (0.4 + 3 * (1 - c.quality.housing)) * (c.policy('inspection') === 'on' ? 0.4 : 1),
     cooldown: 24,
-    text: '一幢舊樓外牆石屎剝落，屋宇署要求全港舊樓加快檢驗和維修。',
+    text: (c) =>
+      c.policy('inspection') === 'on'
+        ? '一幢舊樓外牆石屎剝落，屋宇署向業主發出維修令，要求限期完成維修。'
+        : '一幢舊樓外牆石屎剝落，屋宇署要求全港舊樓加快檢驗和維修。',
     tone: 'bad',
+    places: [PLACES.yauMaTei, PLACES.shamShuiPo, PLACES.northPoint],
   },
   {
     id: 'landTender',
@@ -187,9 +192,12 @@ export const CITY_EVENTS: CityEvent[] = [
   {
     id: 'urbanRenewal',
     category: 'housing',
-    weight: () => 0.4,
+    weight: (c) => ({ off: 0.2, normal: 0.4, fast: 1.2 })[c.policy('renewal')] ?? 0.4,
     cooldown: 36,
-    text: '市區重建局展開新一輪舊區重建，部分街坊小店要結業或搬遷。',
+    text: (c) =>
+      c.policy('renewal') === 'off'
+        ? '土地發展公司展開舊區重建項目，部分街坊小店要結業或搬遷。'
+        : '市區重建局展開新一輪舊區重建，部分街坊小店要結業或搬遷。',
     tone: 'neutral',
     places: [PLACES.kwunTong, PLACES.shamShuiPo, PLACES.toKwaWan],
   },
@@ -225,6 +233,40 @@ export const CITY_EVENTS: CityEvent[] = [
     cooldown: 36,
     text: '社福機構把空置的校舍和工廈改建成過渡性房屋，讓輪候公屋的劏房戶先搬進去住。',
     tone: 'neutral',
+  },
+  {
+    id: 'windowFall',
+    category: 'housing',
+    weight: (c) => (c.policy('inspection') === 'on' ? 0.08 : 0.35),
+    cooldown: 36,
+    text: '一幢舊樓的鋁窗突然墮下，險些擊中途人，社會要求業主定期檢查窗戶。',
+    tone: 'bad',
+  },
+  {
+    id: 'inspectionNotice',
+    category: 'housing',
+    weight: (c) => (c.policy('inspection') === 'on' ? 0.6 : 0),
+    cooldown: 36,
+    text: '大批舊樓業主收到強制驗樓通知，有長者業主擔心負擔不起維修費，向政府申請資助。',
+    tone: 'neutral',
+  },
+  {
+    id: 'renewalProtest',
+    category: 'housing',
+    weight: (c) => (c.policy('renewal') === 'fast' ? 1 : 0),
+    cooldown: 24,
+    text: '重建項目收購舊樓，有業主不滿賠償太低，街坊組成關注組，要求保留老店和社區特色。',
+    tone: 'bad',
+    places: [PLACES.yauMaTei, PLACES.shamShuiPo, PLACES.toKwaWan, PLACES.kwunTong],
+  },
+  {
+    id: 'renewedStreets',
+    category: 'housing',
+    weight: (c) => ({ off: 0, normal: 0.15, fast: 0.8 })[c.policy('renewal')] ?? 0,
+    cooldown: 36,
+    text: '舊區重建的新樓落成，街道擴闊並加建休憩空間，區內樓價隨之上升。',
+    tone: 'good',
+    places: [PLACES.kwunTong, PLACES.yauMaTei, PLACES.toKwaWan],
   },
 
   // 醫療

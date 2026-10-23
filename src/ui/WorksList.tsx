@@ -17,6 +17,10 @@ const y = (t: number) => `${yearOf(t)} 年`
 
 /** What happened to one of the city's works over the term. */
 function story(key: string, kind: WorkKind, log: WorkLog): string {
+  if (kind === 'renewal') {
+    const start = `${y(log.building!)}展開大規模重建`
+    return log.built !== undefined ? `${start}，${y(log.built)}第一批重建完成。` : `${start}，任期完結時仍在重建。`
+  }
   const done = kind === 'rail' ? '通車' : kind === 'industry' ? '落成' : '第一批屋邨落成'
   const parts: string[] = []
   if (log.built !== undefined) {
@@ -34,6 +38,7 @@ function story(key: string, kind: WorkKind, log: WorkLog): string {
 
 /** How real Hong Kong compares: when it had the same, or the plan a new work came from. */
 function reality(key: string, kind: WorkKind, log: WorkLog): string {
+  if (kind === 'renewal') return `真實香港的重建步伐較慢。參考：${PLANS.get(key)}`
   const had = kind === 'rail' ? '通車' : '建成'
   if (log.realAt === undefined) return `真實香港沒有在這時興建。來源：${PLANS.get(key) ?? '規劃研究'}`
   const first = log.built ?? log.delayed!

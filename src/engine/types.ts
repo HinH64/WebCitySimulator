@@ -27,6 +27,10 @@ export interface Deviations {
   priceShift: number
   /** Life expectancy, years (adjusts gradually). */
   lifeExpectancy: number
+  /** Old private flats pulled down and not yet rebuilt, beyond history (萬); negative when the city rebuilds less. */
+  redevelop: number
+  /** Old private flats rebuilt so far beyond history (萬). */
+  renewed: number
 }
 
 export type StockKey =
@@ -47,6 +51,8 @@ export type StockKey =
   | 'landSale'
   /** Extra spending, 億 (nominal at the time it is paid). */
   | 'money'
+  /** Old flats being rebuilt (萬); see Deviations.redevelop. */
+  | 'redevelop'
 
 /** `at` and `over` are in months. */
 export type Effect =
@@ -387,6 +393,10 @@ export interface Metrics {
   households: number
   publicUnits: number
   privateUnits: number
+  /** Old private flats being rebuilt beyond history (萬), not counted in `privateUnits` until rebuilt. */
+  redeveloping: number
+  /** Old private flats rebuilt so far beyond history (萬); the map's building sites move on with it. */
+  renewed: number
   prhWait: number
   priceIndex: number
   /** Price index divided by a wage index (1997 = 1). */

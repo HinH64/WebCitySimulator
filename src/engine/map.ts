@@ -292,6 +292,8 @@ export function unitsPerCell(kind: Housing): number {
 }
 
 let landCells: number | undefined
+/** Cells of the post-1997 projects: new estates, never an old district's old flats. */
+let newEstates: Set<number> | undefined
 
 const siteCellCache = new Map<string, number[]>()
 
@@ -327,7 +329,7 @@ export const siteKey = (id: string) => `site:${id}`
 export const areaKey = (id: string) => `area:${id}`
 export const railKey = (id: string) => `rail:${id}`
 
-const SECTOR_KIND: Record<Exclude<CandidateSite['use'], 'housing'>, TileKind[]> = {
+const SECTOR_KIND: Record<Exclude<CandidateSite['use'], 'housing' | 'renewal'>, TileKind[]> = {
   finance: ['commercial'],
   trade: ['logistics', 'logistics', 'port'],
   tourism: ['park', 'commercial'],
@@ -400,6 +402,19 @@ export function cityChanges(m: Metrics, t: number, sectorMonth = t): CityChanges
   const parkEdge = greenGap < 0 ? sitePool(t, (site) => Boolean(site.countryPark), taken).slice(0, Math.round((-greenGap / 100) * landCells)) : []
   parkEdge.forEach((c) => put(c.cell, 'construction', c.owner))
 
+  // Old flats being rebuilt beyond history are building sites in the old districts, which move on
+  // through the districts as flats are finished.
+  const rebuilding = Math.round(Math.max(0, m.redeveloping) / unitsPerCell('private'))
+  if (rebuilding > 0) {
+    newEstates ??= new Set(MAP_PROJECTS.flatMap((p) => projectCells(p)))
+    const pool = sitePool(t, (site) => site.use === 'renewal', taken).filter((c) => !newEstates!.has(c.cell))
+    const start = Math.round(Math.max(0, m.renewed) / unitsPerCell('private'))
+    for (let k = 0; k < Math.min(rebuilding, pool.length); k++) {
+      const c = pool[(start + k) % pool.length]
+      put(c.cell, 'construction', c.owner)
+    }
+  }
+
   const shares = realSectors(sectorMonth)
   for (const use of ['finance', 'trade', 'tourism', 'professional'] as const) {
     const ahead = m.sectors[use] / shares[use] - 1
@@ -411,7 +426,9 @@ export function cityChanges(m: Metrics, t: number, sectorMonth = t): CityChanges
 
   const need: Record<Housing, number> = { public: 0, private: 0 }
   for (const kind of ['public', 'private'] as const) {
-    const gap = Math.round((m[kind === 'public' ? 'publicUnits' : 'privateUnits'] - real[kind === 'public' ? 'publicUnits' : 'privateUnits']) / unitsPerCell(kind))
+    // Flats being rebuilt are on the map already, as building sites in the old districts.
+    const units = kind === 'public' ? m.publicUnits : m.privateUnits + m.redeveloping
+    const gap = Math.round((units - real[kind === 'public' ? 'publicUnits' : 'privateUnits']) / unitsPerCell(kind))
     if (gap > 0) need[kind] = gap
     else if (gap < 0) {
       for (const h of realHousingOrder(kind).filter((h) => h.month <= t).slice(gap)) removed.push({ cell: h.cell, kind: h.before, owner: areaKey(h.project) })

@@ -69,6 +69,8 @@ export function computeMetrics(s: MetricInput, t: number): Metrics {
     households,
     publicUnits,
     privateUnits,
+    redeveloping: dev.redevelop,
+    renewed: dev.renewed,
     prhWait,
     priceIndex,
     // Rates are charged on rent, so each point above the real rate adds about 1% to the cost of housing.
@@ -105,6 +107,8 @@ export function zeroDeviations(): Deviations {
     lnPrice: 0,
     priceShift: 0,
     lifeExpectancy: 0,
+    redevelop: 0,
+    renewed: 0,
   }
 }
 
