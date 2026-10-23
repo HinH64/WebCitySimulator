@@ -17,13 +17,14 @@ import { PopulationPanel } from './panels/PopulationPanel'
 import { TaxPanel } from './panels/TaxPanel'
 import { SettingsDialog } from './SettingsDialog'
 import { SourcesDialog } from './SourcesDialog'
+import { SpeedMenu } from './SpeedMenu'
 import { formatNumber, money, signed } from './format'
+import { dueStop, monthMs, skipStop } from './speed'
 import { saveSpeed, type Settings, type Speed } from './storage'
 
-const MONTH_MS: Record<Speed, number> = { slow: 1600, normal: 1000, fast: 400 }
-const SPEED_LABEL: Record<Speed, string> = { slow: '慢', normal: '中', fast: '快' }
-const NEXT_SPEED: Record<Speed, Speed> = { slow: 'normal', normal: 'fast', fast: 'slow' }
 const FRAME_MS = 100
+/** At high speed one tick may simulate a few months, but never more, so the page keeps up. */
+const MAX_STEPS_PER_TICK = 4
 
 type PanelId = 'map' | 'budget' | 'tax' | 'debt' | 'policy' | 'demand' | 'population'
 const PANELS: { id: PanelId; label: string }[] = [
@@ -79,6 +80,9 @@ export function GameScreen({ game, initialSpeed, settings, onSettings, onEnd, on
   const [paused, setPaused] = useState(false)
   const [pauseNote, setPauseNote] = useState<string | null>(null)
   const [speed, setSpeed] = useState<Speed>(initialSpeed)
+  const [skipping, setSkipping] = useState(false)
+  /** The decision fast-forwarding last stopped for; pressing it again lets that one expire. */
+  const warnedDue = useRef<number | undefined>(undefined)
   const [panel, setPanel] = useState<PanelId>('budget')
   const [focusRow, setFocusRow] = useState<DemandRow['id']>()
   const [sideOpen, setSideOpen] = useState(true)
@@ -107,28 +111,55 @@ export function GameScreen({ game, initialSpeed, settings, onSettings, onEnd, on
   const panelOpen = narrow ? sheetOpen : sideOpen
   const editingNow = narrow ? sheetOpen : editing
   const blocked = showSettings || showSources || (settings.pauseWhileEditing && editingNow)
-  const running = game.status === 'running' && !paused && !blocked
+  const running = game.status === 'running' && !paused && !blocked && !skipping
 
   useEffect(() => {
     if (!running) return
     let last = performance.now()
     const id = window.setInterval(() => {
       const now = performance.now()
-      progress.current += (now - last) / MONTH_MS[speed]
+      progress.current += (now - last) / monthMs(speed)
       last = now
-      if (progress.current >= 1) {
-        progress.current = Math.min(progress.current - 1, 0.99)
+      for (let n = 0; progress.current >= 1 && n < MAX_STEPS_PER_TICK && game.status === 'running'; n++) {
+        progress.current -= 1
         step(game)
         const reason = pauseReason(game.signals, settings, game)
         if (reason) {
           setPaused(true)
           setPauseNote(reason)
+          break
         }
       }
+      progress.current = Math.min(progress.current, 0.99)
       bump()
     }, FRAME_MS)
     return () => window.clearInterval(id)
   }, [running, speed, settings, game, bump])
+
+  // Fast-forwarding: one month a frame, so the clock is still seen moving, until something needs the player.
+  useEffect(() => {
+    if (!skipping || blocked) return
+    let id = 0
+    const frame = () => {
+      if (game.status !== 'running') {
+        setSkipping(false)
+        return
+      }
+      step(game)
+      bump()
+      const stop = skipStop(game)
+      if (stop) {
+        warnedDue.current = stop.due
+        setSkipping(false)
+        setPaused(true)
+        setPauseNote(stop.text)
+        return
+      }
+      id = requestAnimationFrame(frame)
+    }
+    id = requestAnimationFrame(frame)
+    return () => cancelAnimationFrame(id)
+  }, [skipping, blocked, game, bump])
 
   useEffect(() => {
     if (game.status !== 'ended') return
@@ -191,14 +222,31 @@ export function GameScreen({ game, initialSpeed, settings, onSettings, onEnd, on
   }
 
   const togglePause = () => {
-    setPaused(!paused)
+    if (skipping) {
+      setSkipping(false)
+      setPaused(true)
+    } else setPaused(!paused)
     setPauseNote(null)
   }
 
-  const changeSpeed = () => {
-    const next = NEXT_SPEED[speed]
+  const chooseSpeed = (next: Speed) => {
     setSpeed(next)
     saveSpeed(next)
+    setSkipping(false)
+  }
+
+  const startSkip = () => {
+    // A decision that would expire in the very first month stops it before it starts, once.
+    const stop = dueStop(game, warnedDue.current)
+    if (stop) {
+      warnedDue.current = stop.due
+      setPaused(true)
+      setPauseNote(stop.text)
+      return
+    }
+    setPaused(false)
+    setPauseNote(null)
+    setSkipping(true)
   }
 
   const panels = narrow ? NARROW_PANELS : PANELS
@@ -272,10 +320,7 @@ export function GameScreen({ game, initialSpeed, settings, onSettings, onEnd, on
               {paused ? '▶' : '❚❚'}
               <span className="control-label">{paused ? ' 繼續' : ' 暫停'}</span>
             </button>
-            <button className="button" onClick={changeSpeed} aria-label={`速度：${SPEED_LABEL[speed]}`}>
-              <span className="control-label">速度：</span>
-              {SPEED_LABEL[speed]}
-            </button>
+            <SpeedMenu speed={speed} skipping={skipping} disabled={game.status !== 'running'} onSpeed={chooseSpeed} onSkip={startSkip} />
             <button className="button icon" onClick={() => setShowSettings(true)} aria-label="設定">
               ⚙
             </button>
@@ -289,6 +334,14 @@ export function GameScreen({ game, initialSpeed, settings, onSettings, onEnd, on
           <span>{pauseNote}</span>
           <button className="button primary small-button" onClick={togglePause}>
             繼續
+          </button>
+        </div>
+      )}
+      {skipping && (
+        <div className="pause-note" role="status">
+          <span>快轉中：遇到新抉擇、危機或抉擇快到期就會停下。</span>
+          <button className="button small-button" onClick={togglePause}>
+            停止
           </button>
         </div>
       )}

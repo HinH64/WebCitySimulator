@@ -1,18 +1,13 @@
 import { useState } from 'react'
 import { randomSeed, seedFromText } from '../engine/rng'
 import { SourcesDialog } from './SourcesDialog'
-import { clearTerms, loadTerms, saveSpeed, type PastTerm, type Speed } from './storage'
+import { playTime } from './speed'
+import { SPEEDS, clearTerms, loadTerms, saveSpeed, type PastTerm, type Speed } from './storage'
 
 interface Props {
   initialSpeed: Speed
   onStart: (seed: number, speed: Speed) => void
 }
-
-const SPEEDS: { id: Speed; label: string; hint: string }[] = [
-  { id: 'slow', label: '慢', hint: '約 9 分鐘' },
-  { id: 'normal', label: '中', hint: '約 6 分鐘' },
-  { id: 'fast', label: '快', hint: '約 2 分半' },
-]
 
 export function StartScreen({ initialSpeed, onStart }: Props) {
   const [seedText, setSeedText] = useState(() => String(randomSeed()))
@@ -68,14 +63,15 @@ export function StartScreen({ initialSpeed, onStart }: Props) {
 
         <fieldset className="field">
           <legend>速度</legend>
-          <div className="segmented">
+          <div className="segmented speed-choice">
             {SPEEDS.map((s) => (
-              <button key={s.id} className={speed === s.id ? 'active' : ''} onClick={() => setSpeed(s.id)} aria-pressed={speed === s.id}>
-                {s.label}
-                <span className="small muted">{s.hint}</span>
+              <button key={s} className={speed === s ? 'active' : ''} onClick={() => setSpeed(s)} aria-pressed={speed === s}>
+                {s}×
+                <span className="small muted">{playTime(s)}</span>
               </button>
             ))}
           </div>
+          <span className="muted small">遊戲中可以隨時改變速度，或快轉到下一個抉擇。</span>
         </fieldset>
 
         <button className="button primary big" onClick={start}>

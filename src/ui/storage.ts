@@ -7,7 +7,9 @@ export interface PastTerm {
   endYear: number
 }
 
-export type Speed = 'slow' | 'normal' | 'fast'
+/** How many times faster than 1×, which is 1.6 seconds a month. */
+export const SPEEDS = [1, 2, 4, 8, 12, 16] as const
+export type Speed = (typeof SPEEDS)[number]
 
 export interface Settings {
   /** Pause after every N years; 0 never pauses. */
@@ -25,7 +27,11 @@ export const DEFAULT_SETTINGS: Settings = {
 }
 
 const TERMS_KEY = 'parallel-hk.terms.v4'
-const SPEED_KEY = 'parallel-hk.speed.v1'
+const SPEED_KEY = 'parallel-hk.speed.v2'
+/** Before 1×–16×: slow, normal and fast. */
+const OLD_SPEED_KEY = 'parallel-hk.speed.v1'
+const OLD_SPEED: Record<string, Speed> = { slow: 1, normal: 2, fast: 4 }
+const DEFAULT_SPEED: Speed = 2
 const SETTINGS_KEY = 'parallel-hk.settings.v1'
 const MAX_TERMS = 20
 
@@ -61,8 +67,9 @@ export function clearTerms() {
 }
 
 export function loadSpeed(): Speed {
-  const s = read<string>(SPEED_KEY, 'normal')
-  return s === 'slow' || s === 'fast' ? s : 'normal'
+  const s = read<unknown>(SPEED_KEY, null)
+  if (SPEEDS.includes(s as Speed)) return s as Speed
+  return OLD_SPEED[read<string>(OLD_SPEED_KEY, '')] ?? DEFAULT_SPEED
 }
 
 export function saveSpeed(speed: Speed) {
