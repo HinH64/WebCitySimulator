@@ -14,6 +14,7 @@ import type { GameState } from '../engine/types'
 import { formatNumber, percent } from './format'
 import { useDarkTheme, useMapSize } from './MapView'
 import { DISTRICTS, districtCamera, zoomCamera, type Camera, type Projection } from './mapGeometry'
+import { realLandmarks, type LandmarkView } from '../engine/landmarks'
 import { mapMoments, sceneAtMoment } from './mapHistory'
 import { renderScene } from './mapRenderer'
 import { loadMapPrefs } from './storage'
@@ -23,6 +24,8 @@ interface Frame {
   label: string
   yours: CityMap
   real: CityMap
+  yourLandmarks: readonly LandmarkView[]
+  realLandmarks: readonly LandmarkView[]
   population: number
 }
 
@@ -54,7 +57,10 @@ function stats(map: CityMap, t: number, population: number) {
  */
 export function MapCompare({ game, endT }: { game: GameState; endT: number }) {
   const frames = useMemo<Frame[]>(() => {
-    return mapMoments(game, endT).map((moment) => ({ ...moment, yours: sceneAtMoment(moment).map, real: realCityMapAt(moment.t), population: moment.metrics.population }))
+    return mapMoments(game, endT).map((moment) => {
+      const yours = sceneAtMoment(moment, game)
+      return { ...moment, yours: yours.map, real: realCityMapAt(moment.t), yourLandmarks: yours.landmarks ?? [], realLandmarks: realLandmarks(moment.t), population: moment.metrics.population }
+    })
   }, [game, endT])
 
   const [index, setIndex] = useState(frames.length - 1)
@@ -86,12 +92,12 @@ export function MapCompare({ game, endT }: { game: GameState; endT: number }) {
   // Both cities drawn whole, once per year and size; the divider only recombines them.
   const layers = useMemo(() => {
     if (W === 0) return null
-    const draw = (map: CityMap) => {
+    const draw = (map: CityMap, landmarks: readonly LandmarkView[]) => {
       const canvas = document.createElement('canvas')
-      renderScene(canvas, { frame: { map, t: frame.t }, camera, projection, width: size.w, height: size.h, dpr, dark, sea: getComputedStyle(frameRef.current!).getPropertyValue('--map-sea').trim() })
+      renderScene(canvas, { frame: { map, t: frame.t, landmarks }, camera, projection, width: size.w, height: size.h, dpr, dark, sea: getComputedStyle(frameRef.current!).getPropertyValue('--map-sea').trim() })
       return canvas
     }
-    return { yours: draw(frame.yours), real: draw(frame.real) }
+    return { yours: draw(frame.yours, frame.yourLandmarks), real: draw(frame.real, frame.realLandmarks) }
     // `dark` re-reads the theme colours.
   }, [frame, size, W, camera, projection, dpr, dark])
 

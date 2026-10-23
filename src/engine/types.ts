@@ -104,6 +104,8 @@ export interface HistoryEvent {
   shock?: Shock
   /** The railway line it opens (mapProjects.ts), so a city without the line reports it delayed instead. */
   route?: string
+  /** The landmark it opens (landmarks.ts), so a city that is not ready reports it waiting instead. */
+  landmark?: string
 }
 
 export interface HistoryChoice {
@@ -233,6 +235,12 @@ export interface ChoiceRecord {
 
 export type NewsKind = 'history' | 'inbox' | 'decision' | 'parallel' | 'city' | 'project' | 'citizen' | 'stats' | 'milestone' | 'report' | 'system'
 
+/** When a real landmark opened in the city, and when the news first said it would wait. */
+export interface LandmarkLog {
+  opened?: number
+  delayed?: number
+}
+
 /** Months the news first reported each step of one of the city's own works (projects.ts). */
 export interface WorkLog {
   building?: number
@@ -348,6 +356,8 @@ export interface GameState {
   milestones: Record<string, number>
   /** The city's own works the news has reported, by key (projects.ts). */
   works: Record<string, WorkLog>
+  /** Real landmarks: when each opened, or was first reported waiting (landmarks.ts); display only. */
+  landmarks: Record<string, LandmarkLog>
   /** The people the game follows (citizens.ts); display only. */
   citizens: CitizenState[]
   /** The city's figures at the end of every month so far (index = month), for statistics releases. */

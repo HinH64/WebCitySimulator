@@ -10,6 +10,7 @@ import type { GameState, Place } from '../engine/types'
 import { formatNumber, percent } from './format'
 import { DENSITY_SCALE, KIND_COLOUR, LAND_LEGEND, PRICE_SCALE, hexToRgb, scaleColour } from './mapStyle'
 import { DISTRICTS, clampCamera, districtCamera, gridPoint, panCamera, zoomCamera, type Camera, type Projection } from './mapGeometry'
+import { cityLandmarks } from '../engine/landmarks'
 import { mapMoments, sceneAtMoment } from './mapHistory'
 import { renderScene, type MapScene } from './mapRenderer'
 import { loadMapPrefs, saveMapPrefs, type MapLayer } from './storage'
@@ -177,8 +178,11 @@ export function MapView({ game, focus, onFocused }: MapViewProps) {
   const works = useMemo(() => cityWorks(game), [game, quarter, game.status])
   const moments = useMemo(() => mapMoments(game, currentT), [game, game.snapshots.length, currentT])
   const moment = past === null ? undefined : moments.find((m) => m.t === past)
-  const historical = useMemo(() => moment ? sceneAtMoment(moment) : null, [moment?.t, moment?.metrics])
-  const scene: MapScene = historical ?? { ...works, t: currentT }
+  const historical = useMemo(() => moment ? sceneAtMoment(moment, game) : null, [moment?.t, moment?.metrics])
+  const landmarks = useMemo(() => cityLandmarks(game, works.map, currentT), [works, currentT, game.status])
+  // Opening a landmark is rare; redraw for it, not for every month that passes.
+  const landmarkKey = (historical?.landmarks ?? landmarks).map((l) => l.id).join()
+  const scene: MapScene = historical ?? { ...works, t: currentT, landmarks }
   const map = scene.map
   const t = scene.t
   const metric = moment?.metrics ?? metricsNow(game)
@@ -236,12 +240,12 @@ export function MapView({ game, focus, onFocused }: MapViewProps) {
   useEffect(() => {
     if (!canvasRef.current || !size.w || !visible) return
     renderScene(canvasRef.current, {
-      frame: scene, camera, projection: effectiveProjection, width: size.w, height: size.h, dpr: size.dpr, dark, bitmap,
+      frame: layer === 'land' ? scene : { ...scene, landmarks: undefined }, camera, projection: effectiveProjection, width: size.w, height: size.h, dpr: size.dpr, dark, bitmap,
       outline: mine && !historical ? { cells: works.extraCells, rail: works.extraRail } : null,
       flash: historical ? [] : flash, marker,
       sea: getComputedStyle(canvasRef.current).getPropertyValue('--map-sea').trim(),
     })
-  }, [map, lightRail, works, historical, camera, effectiveProjection, size, dark, bitmap, mine, flash, marker, visible])
+  }, [map, lightRail, works, historical, landmarkKey, layer, camera, effectiveProjection, size, dark, bitmap, mine, flash, marker, visible])
 
   const zoomAt = (factor: number, x?: number, y?: number, from = camera) =>
     setCamera(zoomCamera(from, effectiveProjection, size.w, size.h, factor, x, y))

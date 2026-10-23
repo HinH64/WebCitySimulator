@@ -14,7 +14,7 @@ export const HISTORY_EVENTS: HistoryEvent[] = [
   },
   { id: 'birdflu', year: 1997, month: 12, text: '香港發現 H5N1 禽流感病毒，政府撲殺全港約 130 萬隻雞。' },
   { id: 'tcl', year: 1998, month: 6, text: '東涌綫及機場快綫通車。', place: PLACES.tungChung, route: 'tungChung' },
-  { id: 'airport', year: 1998, month: 7, text: '赤鱲角新機場啟用，啟德機場關閉。', place: PLACES.airport },
+  { id: 'airport', year: 1998, month: 7, text: '赤鱲角新機場啟用，啟德機場關閉。', place: PLACES.airport, landmark: 'airport' },
   { id: 'cyberport', year: 1999, month: 3, text: '財政預算案公布數碼港計劃，在薄扶林鋼綫灣興建資訊科技園區。', place: PLACES.cyberport },
   {
     id: 'tracker',
@@ -46,6 +46,7 @@ export const HISTORY_EVENTS: HistoryEvent[] = [
     requires: { disney: ['build'] },
     altText: '竹篙灣原本預留給主題樂園的土地仍然空置。',
     place: PLACES.disneyland,
+    landmark: 'disneyland',
   },
   { id: 'ngongPing', year: 2006, month: 9, text: '昂坪 360 纜車啟用，由東涌直達大嶼山昂坪。', place: PLACES.ngongPing },
   { id: 'lmc', year: 2007, month: 8, text: '落馬洲支綫通車，往來內地多了一個鐵路口岸。', place: PLACES.lokMaChau, route: 'lokMaChau' },
@@ -126,6 +127,7 @@ export const HISTORY_EVENTS: HistoryEvent[] = [
     requires: { tenProjects: ['all'] },
     altText: '港珠澳大橋沒有興建。',
     place: PLACES.hzmbPort,
+    landmark: 'hzmbPort',
   },
   { id: 'dhcOpen', year: 2019, month: 9, text: '首間地區康健中心在葵青區啟用。', requires: { dhc: ['build'] }, place: PLACES.kwaiFong },
   { id: 'econ2019', year: 2019, month: 12, text: '受中美貿易摩擦等因素影響，全年經濟收縮約 1.7%。' },
@@ -182,7 +184,7 @@ export const HISTORY_EVENTS: HistoryEvent[] = [
     text: '海洋公園的大熊貓盈盈誕下一對雙胞胎，是首對在香港出生的大熊貓。',
     place: PLACES.oceanPark,
   },
-  { id: 'kaiTakSports', year: 2025, month: 3, text: '啟德體育園開幕，主場館可容納五萬名觀眾。', place: PLACES.kaiTakSports },
+  { id: 'kaiTakSports', year: 2025, month: 3, text: '啟德體育園開幕，主場館可容納五萬名觀眾。', place: PLACES.kaiTakSports, landmark: 'kaiTakSports' },
   {
     id: 'lphIntake',
     year: 2025,

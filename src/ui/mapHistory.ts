@@ -1,3 +1,4 @@
+import { cityLandmarks } from '../engine/landmarks'
 import { cityMapFrom, realCityMapAt } from '../engine/map'
 import { realMetrics } from '../engine/metrics'
 import { monthOf, yearOf } from '../engine/time'
@@ -14,7 +15,11 @@ export function mapMoments(game: GameState, endT: number): MapMoment[] {
   ]
 }
 
-/** Snapshots have no past construction pipeline; ground and railway come only from their metrics. */
-export function sceneAtMoment(moment: MapMoment): MapScene {
-  return { t: moment.t, map: moment.t === 0 ? realCityMapAt(0) : cityMapFrom(moment.metrics, moment.t, moment.t + 1) }
+/**
+ * Snapshots have no past construction pipeline; ground and railway come only from their metrics. With the
+ * game, the landmarks it had opened by then are on it too.
+ */
+export function sceneAtMoment(moment: MapMoment, game?: Pick<GameState, 'landmarks'>): MapScene {
+  const map = moment.t === 0 ? realCityMapAt(0) : cityMapFrom(moment.metrics, moment.t, moment.t + 1)
+  return game ? { t: moment.t, map, landmarks: cityLandmarks(game, map, moment.t) } : { t: moment.t, map }
 }

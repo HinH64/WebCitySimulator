@@ -1,6 +1,8 @@
 import { MAP_COLS, MAP_ROWS, MAP_TILE_KINDS } from '../data/mapBase'
 import type { TileKind } from '../data/mapProjects'
 import { lightRailStops, realMapAt, type CityMap, type RailSegment, type Railway } from '../engine/map'
+import type { LandmarkShape } from '../data/landmarks'
+import type { LandmarkView } from '../engine/landmarks'
 import type { CityWork } from '../engine/projects'
 import type { Place } from '../engine/types'
 import { KIND_COLOUR, hexToRgb } from './mapStyle'
@@ -12,6 +14,7 @@ export interface MapScene {
   map: CityMap
   works?: readonly CityWork[]
   railBuilding?: Railway
+  landmarks?: readonly LandmarkView[]
 }
 
 export interface RenderOptions {
@@ -124,8 +127,9 @@ function footprint(tr: Transform, c: number, r: number, x: number, y: number, w:
   return [[x, y], [x + w, y], [x + w, y + h], [x, y + h]].map(([dx, dy]) => project(tr, c + dx, r + dy)) as [number, number][]
 }
 
-function block(ctx: CanvasRenderingContext2D, tr: Transform, c: number, r: number, x: number, y: number, w: number, depth: number, height: number, colour: string, fresh = false) {
-  const base = footprint(tr, c, r, x, y, w, depth)
+/** A box on the cell, `lift` cells above the ground (2.5D only: the plan view shows its footprint). */
+function block(ctx: CanvasRenderingContext2D, tr: Transform, c: number, r: number, x: number, y: number, w: number, depth: number, height: number, colour: string, fresh = false, lift = 0) {
+  let base = footprint(tr, c, r, x, y, w, depth)
   if (tr.projection === 'plan') {
     polygon(ctx, base.map(([px, py]) => [px + 1, py + 1]), 'rgba(20,38,40,0.16)')
     polygon(ctx, base, colour, tint(colour, -0.25))
@@ -136,6 +140,7 @@ function block(ctx: CanvasRenderingContext2D, tr: Transform, c: number, r: numbe
     }
     return
   }
+  if (lift) base = base.map(([px, py]) => [px, py - lift * tr.scale])
   const z = height * tr.scale
   const roof = base.map(([px, py]) => [px, py - z]) as [number, number][]
   polygon(ctx, [base[1], base[2], roof[2], roof[1]], tint(colour, -0.3))
@@ -219,6 +224,181 @@ function objects(ctx: CanvasRenderingContext2D, tr: Transform, c: number, r: num
   }
 }
 
+/** A point `z` cells above the ground; the plan view ignores height. */
+function lifted(tr: Transform, c: number, r: number, z: number): [number, number] {
+  const [x, y] = project(tr, c, r)
+  return [x, tr.projection === 'iso' ? y - z * tr.scale : y]
+}
+
+/** A flat ellipse lying on the ground plane, `z` cells up. */
+function disc(ctx: CanvasRenderingContext2D, tr: Transform, c: number, r: number, rx: number, ry: number, z: number, colour: string) {
+  const points: [number, number][] = []
+  for (let k = 0; k < 24; k++) {
+    const a = (k / 24) * Math.PI * 2
+    points.push(lifted(tr, c + rx * Math.cos(a), r + ry * Math.sin(a), z))
+  }
+  polygon(ctx, points, colour)
+}
+
+/** A round building built up from slices: a drum, or a dome. */
+function rotunda(ctx: CanvasRenderingContext2D, tr: Transform, c: number, r: number, rx: number, ry: number, h: number, colour: string, dome = false) {
+  const steps = tr.projection === 'iso' ? 8 : 0
+  for (let k = 0; k <= steps; k++) {
+    const f = steps ? (k / steps) * (dome ? 0.95 : 1) : 0
+    const size = dome ? Math.sqrt(1 - f * f) : 1
+    disc(ctx, tr, c, r, rx * size, ry * size, h * f, k === steps ? tint(colour, 0.25) : tint(colour, -0.25 + 0.25 * (k / Math.max(1, steps))))
+  }
+}
+
+/** A pyramid roof or spire on a square `w` cells wide, from `z` up by `h`. */
+function spire(ctx: CanvasRenderingContext2D, tr: Transform, c: number, r: number, w: number, z: number, h: number, colour: string) {
+  const corners = [[-w / 2, -w / 2], [w / 2, -w / 2], [w / 2, w / 2], [-w / 2, w / 2]].map(([dx, dy]) => lifted(tr, c + dx, r + dy, z))
+  if (tr.projection === 'plan') return polygon(ctx, corners, colour)
+  const apex = lifted(tr, c, r, z + h)
+  polygon(ctx, [corners[1], corners[2], apex], tint(colour, -0.3))
+  polygon(ctx, [corners[2], corners[3], apex], tint(colour, -0.1))
+}
+
+/** A cable, crane jib or boardwalk between two points given as [column, row, height]. */
+function strut(ctx: CanvasRenderingContext2D, tr: Transform, a: [number, number, number], b: [number, number, number], colour: string, width: number) {
+  ctx.strokeStyle = colour
+  ctx.lineWidth = width
+  ctx.beginPath(); ctx.moveTo(...lifted(tr, ...a)); ctx.lineTo(...lifted(tr, ...b)); ctx.stroke()
+}
+
+/** Where a landmark's name goes: about the top of its outline, in cells above the ground. */
+const LANDMARK_TOP: Record<LandmarkShape, number> = {
+  terminal: 1.7, skyscraper: 6.2, supertall: 6.6, campus: 0.9, castle: 2.1, wetland: 0.4, cableBridge: 2.6, cruise: 0.7,
+  station: 0.6, port: 0.5, museum: 2.4, stadium: 0.7, cbd: 4.8, techCampus: 0.8, logisticsHub: 1.7, attraction: 0.7, offices: 3.2,
+}
+
+/** Low landmarks are drawn larger than life, so they read at district zoom next to the towers around them. */
+const LANDMARK_SIZE: Partial<Record<LandmarkShape, number>> = {
+  terminal: 1.5, campus: 1.4, castle: 1.7, wetland: 1.5, cruise: 1.2, station: 1.3, stadium: 1.7, techCampus: 1.4, attraction: 1.5, logisticsHub: 1.2,
+}
+
+/**
+ * One landmark, centred on (c, r) in cells. Simple outlines a player can learn to recognise: towers,
+ * a cable-stayed bridge, a castle, a stadium. Larger than one cell; drawn in place of that cell's buildings.
+ */
+function drawLandmark(ctx: CanvasRenderingContext2D, tr: Transform, shape: LandmarkShape, c: number, r: number) {
+  // Offsets and sizes are in cells from the centre, scaled together by the landmark's size.
+  const k = LANDMARK_SIZE[shape] ?? 1
+  const B = (x: number, y: number, w: number, d: number, h: number, colour: string, lift = 0) => block(ctx, tr, c, r, x * k, y * k, w * k, d * k, h * k, colour, true, lift * k)
+  const R = (x: number, y: number, rx: number, ry: number, h: number, colour: string, dome = false) => rotunda(ctx, tr, c + x * k, r + y * k, rx * k, ry * k, h * k, colour, dome)
+  const D = (x: number, y: number, rx: number, ry: number, z: number, colour: string) => disc(ctx, tr, c + x * k, r + y * k, rx * k, ry * k, z * k, colour)
+  const S = (x: number, y: number, w: number, z: number, h: number, colour: string) => spire(ctx, tr, c + x * k, r + y * k, w * k, z * k, h * k, colour)
+  const L = (a: [number, number, number], b: [number, number, number], colour: string, width: number) =>
+    strut(ctx, tr, [c + a[0] * k, r + a[1] * k, a[2] * k], [c + b[0] * k, r + b[1] * k, b[2] * k], colour, width)
+  const thin = Math.max(1, tr.scale * 0.05)
+  switch (shape) {
+    case 'terminal':
+      B(-1.2, -0.45, 2.4, 0.9, 0.35, '#d9dde3')
+      for (let n = 0; n < 4; n++) B(-1.15 + 0.6 * n, -0.4, 0.5, 0.8, 0.06, '#f1f4f7', 0.35)
+      B(0.95, 0.55, 0.12, 0.12, 1.5, '#c9ced6')
+      B(0.9, 0.5, 0.22, 0.22, 0.15, '#7fa3c7', 1.5)
+      return
+    case 'skyscraper':
+      B(-0.45, -0.45, 0.9, 0.9, 0.3, '#b8c4d4')
+      B(-0.2, -0.2, 0.4, 0.4, 5, '#7f9cc4', 0.3)
+      B(-0.15, -0.15, 0.3, 0.3, 0.5, '#9db4d6', 5.3)
+      B(-0.08, -0.08, 0.16, 0.16, 0.4, '#c9d6ea', 5.8)
+      return
+    case 'supertall':
+      B(-0.55, -0.45, 1.1, 0.9, 0.35, '#b9c3d0')
+      B(-0.22, -0.22, 0.44, 0.44, 5.9, '#5f8fc9', 0.35)
+      B(-0.18, -0.18, 0.36, 0.36, 0.3, '#8fb0dd', 6.25)
+      return
+    case 'campus':
+      B(-0.8, -0.5, 0.5, 0.35, 0.5, '#dfe8ec')
+      B(-0.2, -0.6, 0.5, 0.35, 0.6, '#e8eef0')
+      R(-0.2, 0.2, 0.25, 0.25, 0.5, '#e0b84a', true)
+      B(0.3, 0.1, 0.5, 0.35, 0.45, '#d5e2e6')
+      return
+    case 'castle':
+      B(-0.45, -0.3, 0.14, 0.14, 0.8, '#f3d9e4')
+      S(-0.38, -0.23, 0.14, 0.8, 0.45, '#3f6fd1')
+      B(-0.45, -0.3, 0.9, 0.6, 0.5, '#f3d9e4')
+      B(-0.15, -0.15, 0.3, 0.3, 0.9, '#f8e8ef', 0.5)
+      S(0, 0, 0.3, 1.4, 0.7, '#3f6fd1')
+      B(0.31, 0.16, 0.14, 0.14, 0.8, '#f3d9e4')
+      S(0.38, 0.23, 0.14, 0.8, 0.45, '#3f6fd1')
+      return
+    case 'wetland':
+      D(0.35, 0.3, 0.55, 0.35, 0, '#7fb7d6')
+      L([-0.1, 0.1, 0.03], [0.65, 0.55, 0.03], '#b08a5a', thin)
+      B(-0.6, -0.4, 0.8, 0.45, 0.2, '#c9c2a8')
+      B(-0.6, -0.4, 0.8, 0.45, 0.04, '#7fae6a', 0.2)
+      return
+    case 'cableBridge': {
+      // Spans the channel east to west: two pylons with fanned cables.
+      const cable = Math.max(0.7, tr.scale * 0.025)
+      for (const px of [-0.55, 0.55]) {
+        for (const n of [1, 2, 3]) {
+          L([px, 0, 2.45], [px - 0.3 * n, 0, 0.56], 'rgba(235,239,243,0.85)', cable)
+          L([px, 0, 2.45], [px + 0.3 * n, 0, 0.56], 'rgba(235,239,243,0.85)', cable)
+        }
+      }
+      B(-1.8, -0.08, 3.6, 0.16, 0.06, '#c9ced4', 0.5)
+      for (const px of [-0.55, 0.55]) B(px - 0.07, -0.07, 0.14, 0.14, 2.6, '#e2e5e9')
+      return
+    }
+    case 'cruise':
+      B(-0.8, -0.25, 1.6, 0.5, 0.3, '#eef2f6')
+      for (let n = 0; n < 3; n++) B(-0.75 + 0.52 * n, -0.2, 0.45, 0.4, 0.08, '#dfe6ee', 0.3)
+      B(0.2, 0.45, 1, 0.28, 0.22, '#ffffff')
+      B(0.35, 0.5, 0.6, 0.18, 0.18, '#f1f3f6', 0.22)
+      B(0.75, 0.55, 0.08, 0.08, 0.15, '#c0392b', 0.4)
+      return
+    case 'station':
+      B(-0.7, -0.5, 1.4, 1, 0.25, '#d5ddd8')
+      B(-0.6, -0.4, 1.2, 0.8, 0.12, '#8db57d', 0.25)
+      B(-0.3, -0.2, 0.6, 0.4, 0.15, '#a7c99a', 0.37)
+      return
+    case 'port':
+      for (let n = 0; n < 5; n++) B(-3 + 0.5 * n, -0.03, 0.06, 0.06, 0.35, '#b0b6bd')
+      B(-3.2, -0.06, 2.5, 0.12, 0.05, '#c7ccd2', 0.35)
+      B(-0.7, -0.4, 1.4, 0.8, 0.3, '#e6e9ee')
+      for (let n = 0; n < 3; n++) B(-0.6 + 0.42 * n, -0.3, 0.36, 0.6, 0.1, '#cfd8e3', 0.3)
+      return
+    case 'museum':
+      B(-0.6, -0.25, 1.2, 0.5, 0.35, '#d6d0c4')
+      B(-0.5, -0.06, 1, 0.12, 2, '#4b5a52', 0.35)
+      return
+    case 'stadium':
+      R(0, 0, 0.6, 0.45, 0.55, '#d3dae2')
+      D(0, 0, 0.42, 0.3, 0.56, '#6fb36b')
+      return
+    case 'cbd':
+      B(-0.5, -0.4, 0.3, 0.3, 4.2, '#4f86d9')
+      B(0, -0.5, 0.3, 0.3, 4.8, '#5f93de')
+      B(-0.3, 0.1, 0.3, 0.3, 3.6, '#6a9be0')
+      B(0.25, 0, 0.3, 0.3, 4, '#4a7fcf')
+      return
+    case 'techCampus':
+      B(-0.7, -0.4, 0.5, 0.3, 0.5, '#e3eef0')
+      B(-0.1, -0.5, 0.5, 0.3, 0.55, '#d7e7ea')
+      R(0.3, 0.2, 0.3, 0.3, 0.45, '#6fb0c0', true)
+      B(-0.6, 0.2, 0.5, 0.3, 0.45, '#e9f2f3')
+      return
+    case 'logisticsHub':
+      B(-0.8, -0.5, 1.6, 0.6, 0.55, '#8f9bc0')
+      B(-0.8, 0.2, 1, 0.5, 0.4, '#dde3ea')
+      L([0.6, 0.45, 0], [0.6, 0.45, 1.6], '#d9822b', thin)
+      L([0.6, 0.45, 1.6], [0.6, -0.45, 1.6], '#d9822b', thin)
+      return
+    case 'attraction':
+      R(0, 0, 0.55, 0.55, 0.65, '#f1f4f7', true)
+      B(-0.8, 0.4, 0.5, 0.3, 0.3, '#e7d7b7')
+      return
+    case 'offices':
+      B(-0.4, -0.4, 0.3, 0.3, 3.2, '#7d93b8')
+      B(0.1, -0.3, 0.3, 0.3, 2.6, '#93a8c8')
+      B(-0.2, 0.15, 0.3, 0.3, 3, '#6f88b1')
+      return
+  }
+}
+
 /** Draws only the supplied model output. Geometry is decorative and never consumes a simulation RNG. */
 export function renderScene(canvas: HTMLCanvasElement, options: RenderOptions): number {
   const start = performance.now()
@@ -233,7 +413,8 @@ export function renderScene(canvas: HTMLCanvasElement, options: RenderOptions): 
   ctx.fillStyle = sea
   ctx.fillRect(0, 0, width, height)
   // Zoomed out, buildings would be specks: the whole city is one flat image, and the legend colours stay readable.
-  if (bitmap || tr.scale < DETAIL_SCALE) drawGrid(ctx, tr, bitmap ?? landBitmap(frame.map.grid))
+  const flat = Boolean(bitmap) || tr.scale < DETAIL_SCALE
+  if (flat) drawGrid(ctx, tr, bitmap ?? landBitmap(frame.map.grid))
   else {
     const cells: number[] = []
     for (let r = bounds.r0; r <= bounds.r1; r++) for (let c = bounds.c0; c <= bounds.c1; c++) cells.push(r * MAP_COLS + c)
@@ -252,7 +433,19 @@ export function renderScene(canvas: HTMLCanvasElement, options: RenderOptions): 
     const building = new Set(frame.works?.flatMap((w) => w.building) ?? [])
     const july1997 = (startGrid ??= realMapAt(0))
     const rebuilt = new Set(frame.map.rebuilt)
+    const landmarksAt = new Map<number, LandmarkView[]>()
+    for (const l of frame.landmarks ?? []) {
+      const [c, r] = gridPoint(...l.place)
+      const i = Math.floor(r) * MAP_COLS + Math.floor(c)
+      landmarksAt.set(i, [...(landmarksAt.get(i) ?? []), l])
+    }
     for (const i of cells) {
+      // A landmark stands in place of its cell's own buildings, in the same back-to-front order.
+      const here = landmarksAt.get(i)
+      if (here) {
+        for (const l of here) drawLandmark(ctx, tr, l.shape, ...gridPoint(...l.place))
+        continue
+      }
       const kind = MAP_TILE_KINDS[frame.map.grid[i]] as TileKind
       if (!['public', 'private', 'commercial', 'industrial', 'logistics', 'port', 'institution', 'sciencePark', 'village', 'construction', 'woodland', 'park', 'shrubGrass'].includes(kind)) continue
       const c = i % MAP_COLS
@@ -319,6 +512,27 @@ export function renderScene(canvas: HTMLCanvasElement, options: RenderOptions): 
     ctx.strokeStyle = dark ? '#1b313a' : '#f5f8ef'; ctx.lineWidth = 3
     ctx.strokeText(station.name, x + 5, y - 5)
     ctx.fillStyle = dark ? '#e8eee5' : '#25444b'; ctx.fillText(station.name, x + 5, y - 5)
+  }
+  // Zoomed out, landmarks are small gold diamonds; close up, their outlines carry a name.
+  for (const l of frame.landmarks ?? []) {
+    const [c, r] = gridPoint(...l.place)
+    if (flat) {
+      const [x, y] = project(tr, c, r)
+      if (x < -6 || x > width + 6 || y < -6 || y > height + 6) continue
+      polygon(ctx, [[x, y - 5], [x + 4, y], [x, y + 5], [x - 4, y]], '#e0a526', dark ? '#1b313a' : '#ffffff')
+      continue
+    }
+    if (tr.scale < 6) continue
+    const [x, y] = lifted(tr, c, r, LANDMARK_TOP[l.shape] * (LANDMARK_SIZE[l.shape] ?? 1))
+    ctx.font = '600 11px system-ui, "Microsoft JhengHei", sans-serif'
+    const w = ctx.measureText(l.name).width
+    const lx = x - w / 2
+    if (lx < 4 || lx + w > width - 4 || y < 16 || y > height - 4) continue
+    if (labels.some((o) => Math.abs(o.y - y) < 14 && lx < o.x + o.w && lx + w > o.x)) continue
+    labels.push({ x: lx, y, w })
+    ctx.strokeStyle = dark ? '#1b313a' : '#f5f8ef'; ctx.lineWidth = 3
+    ctx.strokeText(l.name, lx, y - 4)
+    ctx.fillStyle = dark ? '#f4d27a' : '#7a5410'; ctx.fillText(l.name, lx, y - 4)
   }
   if (marker) {
     const [x, y] = project(tr, ...gridPoint(...marker))

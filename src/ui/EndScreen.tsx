@@ -7,6 +7,7 @@ import { formatNumber, percent } from './format'
 import { CitizensEnd } from './CitizensEnd'
 import { MapCompare } from './MapCompare'
 import { TrendChart } from './TrendChart'
+import { LandmarksList } from './LandmarksList'
 import { WorksList } from './WorksList'
 
 interface Props {
@@ -55,6 +56,8 @@ export function EndScreen({ game, onReplaySeed, onNewGame }: Props) {
       </section>
 
       <WorksList game={game} />
+
+      <LandmarksList game={game} endT={r.endT} />
 
       <section>
         <h2 className="section-title">你的香港 vs 真實香港</h2>

@@ -8,6 +8,7 @@ import { pickCitizens, stepCitizens } from './citizens'
 import { computeIndicators } from './indicators'
 import { cityRail, railKey } from './map'
 import { attractiveness, clamp, computeMetrics, fullQuality, realMetrics, zeroDeviations } from './metrics'
+import { LANDMARK_BY_ID, landmarkReady, reportLandmarks } from './landmarks'
 import { WORKS_EVERY, reportMissingLine, reportWorks } from './projects'
 import {
   cpiAt,
@@ -172,6 +173,7 @@ export function newGame(seed: number, options: Partial<GameOptions> = {}): GameS
     migrationLog: [],
     milestones: {},
     works: {},
+    landmarks: {},
     citizens: options.citizens === false ? [] : pickCitizens(seed, Array.isArray(options.citizens) ? options.citizens : undefined),
     statsLog: [],
     releases: {},
@@ -699,6 +701,11 @@ export function step(s: GameState) {
         continue
       }
     }
+    if (shown.main && ev.landmark) {
+      // The landmark's own news reports that it waits, and when it finally opens.
+      const l = LANDMARK_BY_ID.get(ev.landmark)!
+      if (!landmarkReady(s, l, m, t, s.reserves - debt)) continue
+    }
     let text = shown.text
     if (ev.shock && shown.main) {
       const uninspected = playerPolicyLevel(s, POLICY_BY_ID.inspection, t) === 'off' && realPolicyLevel('inspection', t) === 'on'
@@ -709,6 +716,7 @@ export function step(s: GameState) {
     }
     s.news.push({ t, kind: 'history', text, ...(shown.main && ev.place ? { place: ev.place } : {}) })
   }
+  reportLandmarks(s, m, t, s.reserves - debt)
   for (const ch of HISTORY_CHOICES) {
     if (ch.year !== year || ch.month !== month || !choiceApplies(s, ch, t)) continue
     pushInbox(s, { kind: 'history', id: ch.id, title: ch.title, text: ch.text, options: ch.options, defaultOptionId: ch.defaultOptionId })

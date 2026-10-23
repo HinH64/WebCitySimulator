@@ -1,3 +1,4 @@
+import { cityLandmarks, type LandmarkView } from '../engine/landmarks'
 import type { HomesFirst } from '../engine/map'
 import { cityWorks, type CityWorks } from '../engine/projects'
 import { FOLLOW_HISTORY, answer, metricsNow, newGame, setFunding, setPolicy, step, type Strategy } from '../engine/sim'
@@ -25,6 +26,7 @@ const HOMES_FIRST: Partial<Record<ScenarioId, HomesFirst>> = { housingNorth: 'no
 export interface StudyFrame extends CityWorks {
   t: number
   metrics: Metrics
+  landmarks: LandmarkView[]
 }
 
 export interface StudyRun {
@@ -51,7 +53,11 @@ export function buildStudyRun(id: ScenarioId | 'history', seed: number, events: 
   const strategy = strategyFor(id)
   const frames: StudyFrame[] = []
   const homesFirst = id === 'history' ? 'history' : HOMES_FIRST[id] ?? 'history'
-  const capture = () => frames.push({ ...cityWorks(s, homesFirst), t: Math.min(s.t, LAST_MONTH_INDEX), metrics: metricsNow(s) })
+  const capture = () => {
+    const works = cityWorks(s, homesFirst)
+    const t = Math.min(s.t, LAST_MONTH_INDEX)
+    frames.push({ ...works, t, metrics: metricsNow(s), landmarks: cityLandmarks(s, works.map, t) })
+  }
   while (s.status === 'running') {
     for (const item of [...s.inbox]) {
       const option = strategy.choose(s, item)
