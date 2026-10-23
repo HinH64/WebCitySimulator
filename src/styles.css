@@ -626,6 +626,13 @@ input[type='range'] {
 .news-item.kind-project .news-body { border-left: 3px solid var(--accent); padding-left: 0.5rem; }
 .news-item.tone-bad.kind-project .news-body { border-left-color: var(--bad); }
 .tag-project { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
+.tag-citizen { background: color-mix(in srgb, var(--good) 14%, transparent); color: var(--good); }
+.news-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.25rem; }
+.news-head .news-title { margin-bottom: 0; }
+.citizen-endings { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.75rem; }
+.citizen-endings li { display: grid; gap: 0.15rem; padding: 0.75rem 0.9rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.citizen-endings strong { font-size: 1.05rem; }
+.citizen-endings p { margin: 0; }
 .place-button {
   margin-left: 0.4rem;
   padding: 0 0.4rem;

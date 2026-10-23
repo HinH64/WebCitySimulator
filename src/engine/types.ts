@@ -1,5 +1,6 @@
 import type { DeptId, TaxId } from '../data/budget'
 import type { SectorId } from '../data/sectors'
+import type { CitizenState } from './citizens'
 
 /** Quantities the player can push away from history; all start at 0. */
 export interface Deviations {
@@ -230,7 +231,7 @@ export interface ChoiceRecord {
   expired: boolean
 }
 
-export type NewsKind = 'history' | 'inbox' | 'decision' | 'parallel' | 'city' | 'project' | 'stats' | 'milestone' | 'report' | 'system'
+export type NewsKind = 'history' | 'inbox' | 'decision' | 'parallel' | 'city' | 'project' | 'citizen' | 'stats' | 'milestone' | 'report' | 'system'
 
 /** Months the news first reported each step of one of the city's own works (projects.ts). */
 export interface WorkLog {
@@ -250,6 +251,8 @@ export interface NewsItem {
   category?: CityEventCategory
   /** Where it happened; the feed offers to show it on the map. */
   place?: Place
+  /** The followed person it is about (data/citizens.ts). */
+  citizen?: string
 }
 
 export interface Bond {
@@ -297,6 +300,8 @@ export interface GameOptions {
   events: boolean
   /** Low approval can end the term; off still tracks approval but keeps the city in office. */
   removal: boolean
+  /** Follow people through the term: three picked by the seed, the ones named, or none. */
+  citizens: boolean | string[]
 }
 
 export interface GameState {
@@ -343,6 +348,8 @@ export interface GameState {
   milestones: Record<string, number>
   /** The city's own works the news has reported, by key (projects.ts). */
   works: Record<string, WorkLog>
+  /** The people the game follows (citizens.ts); display only. */
+  citizens: CitizenState[]
   /** The city's figures at the end of every month so far (index = month), for statistics releases. */
   statsLog: StatsPoint[]
   /** What each statistics release last reported, and when. */

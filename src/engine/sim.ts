@@ -4,6 +4,7 @@ import { HISTORY_CHOICES, HISTORY_EVENTS, PARALLEL_EVENTS } from '../data/events
 import { POLICIES, POLICY_BY_ID, REBUILD_MONTHS, type PolicyDef, type PolicyEffect } from '../data/policies'
 import { yearValue } from '../data/real'
 import { APPROVAL, grievances, newApproval, noteAnswer, updateApproval } from './approval'
+import { pickCitizens, stepCitizens } from './citizens'
 import { computeIndicators } from './indicators'
 import { cityRail, railKey } from './map'
 import { attractiveness, clamp, computeMetrics, fullQuality, realMetrics, zeroDeviations } from './metrics'
@@ -146,7 +147,7 @@ export function newGame(seed: number, options: Partial<GameOptions> = {}): GameS
   const s: GameState = {
     seed,
     rng: seed,
-    options: { events: true, removal: true, ...options },
+    options: { events: true, removal: true, citizens: true, ...options },
     t: 0,
     status: 'running',
     dev: zeroDeviations(),
@@ -171,6 +172,7 @@ export function newGame(seed: number, options: Partial<GameOptions> = {}): GameS
     migrationLog: [],
     milestones: {},
     works: {},
+    citizens: options.citizens === false ? [] : pickCitizens(seed, Array.isArray(options.citizens) ? options.citizens : undefined),
     statsLog: [],
     releases: {},
     news: [],
@@ -738,6 +740,7 @@ export function step(s: GameState) {
     cityDynamics(s, ctx)
     cityEvent(s, ctx)
   }
+  stepCitizens(s, m, t)
 
   if (updateApproval(s, m) && s.options.removal) {
     s.news.push({

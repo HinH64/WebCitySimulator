@@ -1,4 +1,5 @@
-import { memo } from 'react'
+import { memo, useState } from 'react'
+import { CITIZEN_BY_ID } from '../data/citizens'
 import { CATEGORY_LABEL } from '../data/cityEvents'
 import { monthOf, yearOf } from '../engine/time'
 import type { NewsItem, Place } from '../engine/types'
@@ -9,13 +10,16 @@ const KIND_TAG: Partial<Record<NewsItem['kind'], string>> = {
   decision: '決定',
   parallel: '城市動態',
   project: '工程',
+  citizen: '市民故事',
   stats: '統計數字',
   milestone: '里程碑',
   report: '年度報告',
 }
 
 function tagFor(n: NewsItem): string | undefined {
-  return n.kind === 'city' && n.category ? CATEGORY_LABEL[n.category] : KIND_TAG[n.kind]
+  if (n.kind === 'city' && n.category) return CATEGORY_LABEL[n.category]
+  if (n.kind === 'citizen' && n.citizen) return CITIZEN_BY_ID[n.citizen]?.name
+  return KIND_TAG[n.kind]
 }
 
 interface Props {
@@ -27,9 +31,13 @@ interface Props {
 }
 
 function NewsFeedView({ news, onPlace }: Props) {
+  const [onlyPeople, setOnlyPeople] = useState(false)
+  const hasPeople = news.some((n) => n.kind === 'citizen')
+  const shown = onlyPeople && hasPeople ? (n: NewsItem) => n.kind === 'citizen' : () => true
   // Keyed by position in the whole feed, so only new items mount (and fade in).
   const byYear = new Map<number, { n: NewsItem; i: number }[]>()
   for (let i = news.length - 1; i >= 0; i--) {
+    if (!shown(news[i])) continue
     const year = yearOf(news[i].t)
     if (!byYear.has(year)) byYear.set(year, [])
     byYear.get(year)!.push({ n: news[i], i })
@@ -37,7 +45,19 @@ function NewsFeedView({ news, onPlace }: Props) {
 
   return (
     <section className="news" aria-label="城市新聞">
-      <h2 className="news-title">城市新聞</h2>
+      <div className="news-head">
+        <h2 className="news-title">城市新聞</h2>
+        {hasPeople && (
+          <div className="segmented small-seg" role="group" aria-label="顯示">
+            <button className={onlyPeople ? '' : 'active'} aria-pressed={!onlyPeople} onClick={() => setOnlyPeople(false)}>
+              全部
+            </button>
+            <button className={onlyPeople ? 'active' : ''} aria-pressed={onlyPeople} onClick={() => setOnlyPeople(true)}>
+              市民故事
+            </button>
+          </div>
+        )}
+      </div>
       {news.length === 0 && <p className="muted small">時間開始流動後，新聞會在這裡出現。</p>}
       {[...byYear.entries()].map(([year, items]) => (
         <div key={year} className="news-year">
