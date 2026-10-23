@@ -231,6 +231,8 @@ export function MapView({ game, focus, onFocused }: MapViewProps) {
     return layerBitmap(map, layer, data, cssColour(frame, '--map-sea', KIND_COLOUR.sea), cssColour(frame, '--map-muted', '#e6e8eb'))
   }, [map, layer, data, dark, size.w])
 
+  // The map itself changes each quarter; between those, only the light rail's extension changes the drawing.
+  const lightRail = lightRailStops(t).length
   useEffect(() => {
     if (!canvasRef.current || !size.w || !visible) return
     renderScene(canvasRef.current, {
@@ -239,7 +241,7 @@ export function MapView({ game, focus, onFocused }: MapViewProps) {
       flash: historical ? [] : flash, marker,
       sea: getComputedStyle(canvasRef.current).getPropertyValue('--map-sea').trim(),
     })
-  }, [map, t, works, historical, camera, effectiveProjection, size, dark, bitmap, mine, flash, marker, visible])
+  }, [map, lightRail, works, historical, camera, effectiveProjection, size, dark, bitmap, mine, flash, marker, visible])
 
   const zoomAt = (factor: number, x?: number, y?: number, from = camera) =>
     setCamera(zoomCamera(from, effectiveProjection, size.w, size.h, factor, x, y))

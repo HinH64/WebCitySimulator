@@ -1,4 +1,4 @@
-import { MAP_COLS, MAP_TILE_KINDS } from '../data/mapBase'
+import { MAP_COLS, MAP_ROWS, MAP_TILE_KINDS } from '../data/mapBase'
 import type { TileKind } from '../data/mapProjects'
 import { lightRailStops, type CityMap, type RailSegment, type Railway } from '../engine/map'
 import type { CityWork } from '../engine/projects'
@@ -33,9 +33,48 @@ export interface RenderOptions {
   sea?: string
 }
 
+/** CSS pixels a cell needs before buildings are drawn; below it the ground is flat, in legend colours. */
+export const DETAIL_SCALE = 5
+
 interface Sprite { canvas: HTMLCanvasElement; x: number; y: number; w: number; h: number }
 let spriteSettings = ''
 const sprites = new Map<string, Sprite>()
+
+/** One pixel per cell in land-use colours, sea left clear. A map's grid is not changed once made. */
+const landBitmaps = new WeakMap<Uint8Array, HTMLCanvasElement>()
+function landBitmap(grid: Uint8Array): HTMLCanvasElement {
+  const cached = landBitmaps.get(grid)
+  if (cached) return cached
+  const canvas = document.createElement('canvas')
+  canvas.width = MAP_COLS
+  canvas.height = MAP_ROWS
+  const ctx = canvas.getContext('2d')!
+  const image = ctx.createImageData(MAP_COLS, MAP_ROWS)
+  const rgb = MAP_TILE_KINDS.map((kind) => hexToRgb(KIND_COLOUR[kind]))
+  for (let i = 0; i < grid.length; i++) {
+    if (MAP_TILE_KINDS[grid[i]] === 'sea') continue
+    const [r, g, b] = rgb[grid[i]]
+    image.data[i * 4] = r
+    image.data[i * 4 + 1] = g
+    image.data[i * 4 + 2] = b
+    image.data[i * 4 + 3] = 255
+  }
+  ctx.putImageData(image, 0, 0)
+  landBitmaps.set(grid, canvas)
+  return canvas
+}
+
+/** Lays a one-pixel-per-cell image on the ground. Both projections are affine, so one draw covers the city. */
+function drawGrid(ctx: CanvasRenderingContext2D, tr: Transform, image: HTMLCanvasElement) {
+  const [x, y] = project(tr, 0, 0)
+  const [ax, ay] = project(tr, 1, 0)
+  const [bx, by] = project(tr, 0, 1)
+  ctx.save()
+  ctx.imageSmoothingEnabled = false
+  ctx.transform(ax - x, ay - y, bx - x, by - y, x, y)
+  ctx.drawImage(image, 0, 0)
+  ctx.restore()
+}
 
 /** Repeated buildings use the same tiny drawing. Clear on scale/DPR changes to bound memory. */
 function cellSprite(tr: Transform, dpr: number, kind: TileKind, ornament: number, building: boolean, ground: boolean): Sprite {
@@ -170,26 +209,23 @@ export function renderScene(canvas: HTMLCanvasElement, options: RenderOptions): 
   const sea = options.sea || (dark ? '#233f4b' : '#d5e6e8')
   ctx.fillStyle = sea
   ctx.fillRect(0, 0, width, height)
-  const cells: number[] = []
-  for (let r = bounds.r0; r <= bounds.r1; r++) for (let c = bounds.c0; c <= bounds.c1; c++) cells.push(r * MAP_COLS + c)
-  if (projection === 'iso') cells.sort((a, b) => (a % MAP_COLS + Math.floor(a / MAP_COLS)) - (b % MAP_COLS + Math.floor(b / MAP_COLS)) || a - b)
-  // All ground first, so a neighbouring tile cannot paint over the top of a building.
-  if (bitmap && projection === 'plan') {
-    const [x, y] = project(tr, 0, 0)
-    ctx.imageSmoothingEnabled = false
-    ctx.drawImage(bitmap, x, y, bitmap.width * tr.scale, bitmap.height * tr.scale)
-  }
-  for (const i of bitmap ? [] : cells) {
-    const kind = MAP_TILE_KINDS[frame.map.grid[i]] as TileKind
-    if (kind === 'sea') continue
-    const c = i % MAP_COLS
-    const r = Math.floor(i / MAP_COLS)
-    const [x, y] = project(tr, c, r)
-    if (x + tr.scale * 1.05 < 0 || x - tr.scale * 1.05 > width || y + tr.scale * 1.05 < 0 || y > height) continue
-    const sprite = cellSprite(tr, dpr, kind, 0, false, true)
-    ctx.drawImage(sprite.canvas, x - sprite.x, y - sprite.y, sprite.w, sprite.h)
-  }
-  if (!bitmap && tr.scale >= 5) {
+  // Zoomed out, buildings would be specks: the whole city is one flat image, and the legend colours stay readable.
+  if (bitmap || tr.scale < DETAIL_SCALE) drawGrid(ctx, tr, bitmap ?? landBitmap(frame.map.grid))
+  else {
+    const cells: number[] = []
+    for (let r = bounds.r0; r <= bounds.r1; r++) for (let c = bounds.c0; c <= bounds.c1; c++) cells.push(r * MAP_COLS + c)
+    if (projection === 'iso') cells.sort((a, b) => (a % MAP_COLS + Math.floor(a / MAP_COLS)) - (b % MAP_COLS + Math.floor(b / MAP_COLS)) || a - b)
+    // All ground first, so a neighbouring tile cannot paint over the top of a building.
+    for (const i of cells) {
+      const kind = MAP_TILE_KINDS[frame.map.grid[i]] as TileKind
+      if (kind === 'sea') continue
+      const c = i % MAP_COLS
+      const r = Math.floor(i / MAP_COLS)
+      const [x, y] = project(tr, c, r)
+      if (x + tr.scale * 1.05 < 0 || x - tr.scale * 1.05 > width || y + tr.scale * 1.05 < 0 || y > height) continue
+      const sprite = cellSprite(tr, dpr, kind, 0, false, true)
+      ctx.drawImage(sprite.canvas, x - sprite.x, y - sprite.y, sprite.w, sprite.h)
+    }
     const building = new Set(frame.works?.flatMap((w) => w.building) ?? [])
     for (const i of cells) {
       const kind = MAP_TILE_KINDS[frame.map.grid[i]] as TileKind
@@ -207,15 +243,7 @@ export function renderScene(canvas: HTMLCanvasElement, options: RenderOptions): 
     ctx.fillStyle = `rgba(150,150,145,${frame.map.haze * 0.12})`
     ctx.fillRect(0, 0, width, height)
   }
-  if (highlight) {
-    ctx.strokeStyle = '#f4a340'
-    ctx.lineWidth = 1.8
-    for (const i of cells) if (changed?.has(i)) {
-      const points = footprint(tr, i % MAP_COLS, Math.floor(i / MAP_COLS), 0.04, 0.04, 0.92, 0.92)
-      ctx.beginPath(); points.forEach(([x, y], k) => k ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.closePath(); ctx.stroke()
-    }
-  }
-  const outlineCells = (indices: readonly number[], colour: string) => {
+  const outlineCells = (indices: Iterable<number>, colour: string) => {
     ctx.strokeStyle = colour; ctx.lineWidth = 1.8
     for (const i of indices) {
       const c = i % MAP_COLS, r = Math.floor(i / MAP_COLS)
@@ -224,6 +252,7 @@ export function renderScene(canvas: HTMLCanvasElement, options: RenderOptions): 
       ctx.beginPath(); points.forEach(([x, y], k) => k ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.closePath(); ctx.stroke()
     }
   }
+  if (highlight && changed) outlineCells(changed, '#f4a340')
   if (outline) outlineCells(outline.cells, '#d6336c')
   if (flash) outlineCells(flash, '#ffd400')
   const routeIds = new Set(other?.rail.segments.map((s) => s.route) ?? [])
