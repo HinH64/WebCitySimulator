@@ -3,7 +3,7 @@ import { CITY_EVENTS } from '../data/cityEvents'
 import { HISTORY_CHOICES, HISTORY_EVENTS, PARALLEL_EVENTS } from '../data/events'
 import { POLICIES, POLICY_BY_ID, type PolicyDef, type PolicyEffect } from '../data/policies'
 import { yearValue } from '../data/real'
-import { APPROVAL, newApproval, noteAnswer, updateApproval } from './approval'
+import { APPROVAL, grievances, newApproval, noteAnswer, updateApproval } from './approval'
 import { computeIndicators } from './indicators'
 import { attractiveness, clamp, computeMetrics, fullQuality, realMetrics, zeroDeviations } from './metrics'
 import {
@@ -27,6 +27,7 @@ import {
 } from './real'
 import { publishReleases } from './releases'
 import { nextRandom } from './rng'
+import { shockEffects } from './shocks'
 import { LAST_MONTH_INDEX, START_YEAR, isBefore, monthOf, yearOf } from './time'
 import type {
   ChoiceOption,
@@ -40,6 +41,7 @@ import type {
   InboxItem,
   Metrics,
   MonthFlows,
+  Place,
   StockKey,
   YearAccumulator,
 } from './types'
@@ -257,13 +259,18 @@ export function scheduledPolicy(s: GameState, id: string): { t: number; level: s
   return s.policyQueue.find((q) => q.id === id)
 }
 
-function applyEffect(s: GameState, e: Effect, sign: 1 | -1, baseT: number) {
+/**
+ * `from`: the first month whose scheduled changes are still to come. Between months it is the month
+ * about to be simulated; while a month is being simulated its changes are already applied, so
+ * anything decided then starts the next month.
+ */
+function applyEffect(s: GameState, e: Effect, sign: 1 | -1, baseT: number, from = s.t) {
   switch (e.kind) {
     case 'stock': {
       const at = e.at ?? 0
       const over = e.over ?? 1
       const n = noise(s)
-      for (let i = 0; i < over; i++) schedule(s, Math.max(s.t, baseT + at + i), e.key, (sign * e.v * n) / over)
+      for (let i = 0; i < over; i++) schedule(s, Math.max(from, baseT + at + i), e.key, (sign * e.v * n) / over)
       break
     }
     case 'policy': {
@@ -275,6 +282,9 @@ function applyEffect(s: GameState, e: Effect, sign: 1 | -1, baseT: number) {
     }
     case 'funding':
       for (const d of DEPARTMENTS) setFunding(s, d, s.funding[d] * e.factor)
+      break
+    case 'dept':
+      setFunding(s, e.id, s.funding[e.id] + e.delta)
       break
     case 'tax':
       setTax(s, e.id, s.taxes[e.id] + e.delta)
@@ -296,17 +306,19 @@ export function answer(s: GameState, uid: number, optionId: string, expired = fa
   if (!opt) return undefined
   s.inbox = s.inbox.filter((i) => i.uid !== uid)
   noteAnswer(s, item, expired)
+  // Decisions expire while a month is being simulated.
+  const from = expired ? s.t + 1 : s.t
 
   if (item.kind === 'history') {
     const ch = HISTORY_CHOICES.find((c) => c.id === item.id)!
     const real = ch.options.find((o) => o.id === ch.realOptionId)!
-    for (const e of opt.effects) if (e.kind === 'policy') applyEffect(s, e, 1, item.received)
+    for (const e of opt.effects) if (e.kind === 'policy') applyEffect(s, e, 1, item.received, from)
     if (opt.id !== real.id) {
-      for (const e of opt.effects) if (e.kind !== 'policy') applyEffect(s, e, 1, s.t)
-      for (const e of real.effects) if (e.kind === 'stock') applyEffect(s, e, -1, item.received)
+      for (const e of opt.effects) if (e.kind !== 'policy') applyEffect(s, e, 1, from, from)
+      for (const e of real.effects) if (e.kind === 'stock') applyEffect(s, e, -1, item.received, from)
     }
   } else {
-    for (const e of opt.effects) applyEffect(s, e, 1, s.t)
+    for (const e of opt.effects) applyEffect(s, e, 1, from, from)
   }
 
   s.flags[item.id] = opt.id
@@ -413,12 +425,19 @@ function applyPipeline(s: GameState): { landSale: number; money: number } {
   return { landSale: due.landSale ?? 0, money: due.money ?? 0 }
 }
 
-function historyEventText(s: GameState, ev: (typeof HISTORY_EVENTS)[number], t: number): string | undefined {
+/** The text shown for a history event, and whether it is the main text rather than the alternative. */
+function historyEventText(s: GameState, ev: (typeof HISTORY_EVENTS)[number], t: number): { text: string; main: boolean } | undefined {
   const choicesMet =
     !ev.requires || Object.entries(ev.requires).every(([choiceId, opts]) => opts.includes(s.flags[choiceId]))
   const policyMet =
     !ev.requiresPolicy || ev.requiresPolicy.levels.includes(playerPolicyLevel(s, POLICY_BY_ID[ev.requiresPolicy.id], t))
-  return choicesMet && policyMet ? ev.text : ev.altText
+  if (choicesMet && policyMet) return { text: ev.text, main: true }
+  return ev.altText ? { text: ev.altText, main: false } : undefined
+}
+
+/** One of an event's places, picked by month so it uses no random numbers. */
+function placeAt(places: Place[] | undefined, t: number): { place: Place } | undefined {
+  return places?.length ? { place: places[t % places.length] } : undefined
 }
 
 function fmt(v: number, d = 0): string {
@@ -649,11 +668,19 @@ export function step(s: GameState) {
     return
   }
 
-  // Events.
+  // Events. This month's scheduled changes are already applied, so whatever they start begins next month.
   for (const ev of HISTORY_EVENTS) {
     if (ev.year !== year || ev.month !== month) continue
-    const text = historyEventText(s, ev, t)
-    if (text) s.news.push({ t, kind: 'history', text })
+    const shown = historyEventText(s, ev, t)
+    if (!shown) continue
+    let text = shown.text
+    if (ev.shock && shown.main) {
+      const input = { m, real, quality: s.quality, flags: s.flags, netReserves: s.reserves - debt, monthlySpending: spendingTotal }
+      const r = shockEffects(ev.shock, input)
+      for (const e of r.effects) applyEffect(s, e, 1, t + 1, t + 1)
+      if (r.note) text += r.note
+    }
+    s.news.push({ t, kind: 'history', text, ...(shown.main && ev.place ? { place: ev.place } : {}) })
   }
   for (const ch of HISTORY_CHOICES) {
     if (ch.year !== year || ch.month !== month || !choiceApplies(s, ch, t)) continue
@@ -678,6 +705,8 @@ export function step(s: GameState) {
       autoBorrowed,
       migration12: s.migrationLog.reduce((a, b) => a + b, 0),
       ago: (years) => metricsAgo(s, years),
+      approval: s.approval.value,
+      grievances: grievances(s, m),
     }
     cityDynamics(s, ctx)
     cityEvent(s, ctx)
@@ -731,11 +760,12 @@ function cityDynamics(s: GameState, ctx: CityContext) {
     s.cooldowns[pe.id] = t
     fired++
     const text = typeof pe.text === 'function' ? pe.text(ctx) : pe.text
-    if (pe.options) {
-      pushInbox(s, { kind: 'parallel', id: pe.id, title: pe.title, text, options: pe.options, defaultOptionId: pe.defaultOptionId ?? pe.options[0].id })
+    const options = typeof pe.options === 'function' ? pe.options(ctx) : pe.options
+    if (options) {
+      pushInbox(s, { kind: 'parallel', id: pe.id, title: pe.title, text, options, defaultOptionId: pe.defaultOptionId ?? options[0].id })
     } else {
-      for (const e of pe.effects ?? []) applyEffect(s, e, 1, t)
-      s.news.push({ t, kind: 'parallel', text: `${pe.title}：${text}`, tone: pe.tone })
+      for (const e of pe.effects ?? []) applyEffect(s, e, 1, t + 1, t + 1)
+      s.news.push({ t, kind: 'parallel', text: `${pe.title}：${text}`, tone: pe.tone, ...placeAt(pe.places, t) })
     }
     if (pe.id === 'debtWarning') s.signals.push('crisis')
   }
@@ -756,8 +786,9 @@ function cityEvent(s: GameState, ctx: CityContext) {
   const pick = pool.find((x) => (r -= x.w) < 0) ?? pool[pool.length - 1]
   const ev = pick.ev
   s.cooldowns[ev.id] = t
-  for (const e of ev.effects ?? []) applyEffect(s, e, 1, t)
-  s.news.push({ t, kind: 'city', category: ev.category, text: typeof ev.text === 'function' ? ev.text(ctx) : ev.text, tone: ev.tone })
+  for (const e of ev.effects ?? []) applyEffect(s, e, 1, t + 1, t + 1)
+  const text = typeof ev.text === 'function' ? ev.text(ctx) : ev.text
+  s.news.push({ t, kind: 'city', category: ev.category, text, tone: ev.tone, ...placeAt(ev.places, t) })
 }
 
 export interface Strategy {

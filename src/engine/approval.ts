@@ -1,4 +1,5 @@
-import { DEPARTMENTS, DEPT_INFO, TAXES, TAX_INFO, type DeptId, type TaxId } from '../data/budget'
+import { AREA_DEPT, AREA_LABEL, DEPT_AREA } from '../data/areas'
+import { DEPARTMENTS, DEPT_INFO, TAXES, TAX_INFO, type TaxId } from '../data/budget'
 import { HISTORY_CHOICES, PARALLEL_EVENTS } from '../data/events'
 import { POLICIES, POLICY_BY_ID } from '../data/policies'
 import { clamp } from './metrics'
@@ -38,24 +39,6 @@ export const APPROVAL = {
   removeMonths: 12,
 } as const
 
-export const AREA_LABEL: Record<AreaId, string> = {
-  housing: '住屋',
-  jobs: '就業',
-  transport: '交通',
-  care: '醫療安老',
-  education: '教育',
-  environment: '環境',
-}
-
-export const DEPT_AREA: Record<DeptId, AreaId> = {
-  housing: 'housing',
-  transport: 'transport',
-  economy: 'jobs',
-  education: 'education',
-  health: 'care',
-  environment: 'environment',
-}
-
 function severity(v: number, good: number, bad: number): number {
   return Math.max(0, Math.min(1, (v - good) / (bad - good)))
 }
@@ -94,8 +77,6 @@ export function newApproval(s: Pick<GameState, 'funding' | 'taxes' | 'policies'>
   }
 }
 
-const AREA_DEPT = Object.fromEntries(DEPARTMENTS.map((d) => [DEPT_AREA[d], d])) as Record<AreaId, DeptId>
-
 /**
  * How far people feel the government has responded in an area lately (0–1). Goodwill from being
  * active elsewhere does not reach an area whose department is cut below what its services need.
@@ -104,6 +85,18 @@ export function response(s: Pick<GameState, 'approval' | 'funding'>, area: AreaI
   const a = s.approval
   const general = s.funding[AREA_DEPT[area]] < 0.95 ? 0 : APPROVAL.activeShare * a.active
   return Math.max(a.credit[area], general)
+}
+
+/** People feel run-down services long before the figures move, so these count as much as the figures. */
+function pressure(s: Pick<GameState, 'quality'>, sev: Record<AreaId, number>, area: AreaId): number {
+  return Math.max(sev[area], APPROVAL.decayWeight * (1 - s.quality[AREA_DEPT[area]]))
+}
+
+/** Pressing problems people feel the government has not answered, worst first. */
+export function grievances(s: Pick<GameState, 'approval' | 'funding' | 'quality'>, m: Metrics): AreaId[] {
+  const sev = areaSeverity(m)
+  const p = (area: AreaId) => pressure(s, sev, area)
+  return AREA_IDS.filter((area) => p(area) > 0.25 && response(s, area) < 0.5).sort((x, y) => p(y) - p(x))
 }
 
 const CHOICE_AREAS: Record<string, AreaId[]> = Object.fromEntries(
@@ -141,8 +134,6 @@ export function updateApproval(s: GameState, m: Metrics): boolean {
   const t = s.t
   const sev = areaSeverity(m)
   const top = topAreas(sev)
-  // People feel run-down services long before the figures move, so these count as much as the figures.
-  const pressure = (area: AreaId) => Math.max(sev[area], APPROVAL.decayWeight * (1 - s.quality[AREA_DEPT[area]]))
   let change = 0
   const lost = (points: number, text: string) => {
     change -= points
@@ -183,14 +174,12 @@ export function updateApproval(s: GameState, m: Metrics): boolean {
 
   for (const area of AREA_IDS) {
     const r = response(s, area)
-    change += pressure(area) * (APPROVAL.up * r - APPROVAL.down * (1 - r))
+    change += pressure(s, sev, area) * (APPROVAL.up * r - APPROVAL.down * (1 - r))
   }
   change += APPROVAL.revert * (APPROVAL.base - a.value)
   a.value = clamp(a.value + change, 0, 100)
 
-  const unanswered = AREA_IDS.filter((area) => pressure(area) > 0.25 && response(s, area) < 0.5)
-    .sort((x, y) => pressure(y) - pressure(x))
-    .map((area) => AREA_LABEL[area])
+  const unanswered = grievances(s, m).map((area) => AREA_LABEL[area])
   const grievance = unanswered.length ? `市民覺得政府對${unanswered.slice(0, 2).join('、')}問題沒有回應。` : ''
   if (a.value < APPROVAL.removeLine && a.warned < 2) {
     a.warned = 2

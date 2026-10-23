@@ -540,7 +540,7 @@ input[type='range'] {
 }
 .option:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, var(--surface)); }
 /* Map */
-.map-card { padding: 0.75rem 0.9rem; }
+.map-card { padding: 0.75rem 0.9rem; scroll-margin-top: calc(var(--header-h, 0px) + 0.5rem); }
 .map-head { display: flex; align-items: center; gap: 0.5rem; }
 .map-head .card-title { margin: 0; }
 .map-toggle { margin-left: auto; }
@@ -583,6 +583,22 @@ input[type='range'] {
 .news-item.kind-system .news-body { font-weight: 700; }
 .news-item.tone-bad.kind-parallel .news-body { border-left-color: var(--bad); }
 .news-item.tone-good.kind-parallel .news-body { border-left-color: var(--good); }
+.news-place {
+  margin-left: 0.4rem;
+  padding: 0 0.4rem;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 1.5;
+  color: var(--accent);
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  vertical-align: 0.1em;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.news-place:hover { border-color: var(--accent); }
 .tag-history { background: var(--ink); color: var(--surface); }
 .tag-milestone { background: color-mix(in srgb, var(--good) 14%, transparent); color: var(--good); }
 .tag-inbox { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }

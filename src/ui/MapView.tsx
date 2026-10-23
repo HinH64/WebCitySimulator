@@ -17,7 +17,7 @@ import {
 import { realMetrics } from '../engine/metrics'
 import { metricsNow } from '../engine/sim'
 import { LAST_MONTH_INDEX, yearOf } from '../engine/time'
-import type { GameState } from '../engine/types'
+import type { GameState, Place } from '../engine/types'
 import { formatNumber, percent } from './format'
 import { DENSITY_SCALE, KIND_COLOUR, LAND_LEGEND, PRICE_SCALE, hexToRgb, scaleColour } from './mapStyle'
 import { loadMapPrefs, saveMapPrefs, type MapLayer } from './storage'
@@ -37,6 +37,15 @@ const PRICE_TOP = 240000
 const ZOOM_MAX = 8
 const FLASH_MS = 2500
 const MAX_FLASH = 600
+/** Zoom and how long the marker stays when news opens the map at its place. */
+const FOCUS_ZOOM = 4
+const MARKER_MS = 6000
+
+/** A request from the news to show a place; `key` tells repeated requests for the same place apart. */
+export interface MapFocus {
+  place: Place
+  key: number
+}
 
 interface LayerData {
   people: Record<HomeKind, number>
@@ -133,6 +142,8 @@ interface DrawOptions {
   dpr: number
   /** Sea colour; read from the canvas's theme when it is on the page. */
   sea?: [number, number, number]
+  /** A place the news pointed to, ringed on top of everything. */
+  marker?: Place | null
 }
 
 /** Draws the layer bitmap, haze, flashing cells, railway and stations (names once zoomed in). */
@@ -199,6 +210,23 @@ export function drawMap(canvas: HTMLCanvasElement, o: DrawOptions) {
       ctx.strokeText(s.name, X(s.e) + r + 2 * dpr, Y(s.n) - r)
       ctx.fillText(s.name, X(s.e) + r + 2 * dpr, Y(s.n) - r)
     }
+  }
+
+  if (o.marker) {
+    const mx = X(o.marker[0])
+    const my = Y(o.marker[1])
+    const ring = Math.max(10 * dpr, cellPx * 1.5)
+    for (const [colour, width] of [['rgba(255,255,255,0.95)', 5 * dpr], ['#c9252d', 2.5 * dpr]] as const) {
+      ctx.strokeStyle = colour
+      ctx.lineWidth = width
+      ctx.beginPath()
+      ctx.arc(mx, my, ring, 0, Math.PI * 2)
+      ctx.stroke()
+    }
+    ctx.fillStyle = '#c9252d'
+    ctx.beginPath()
+    ctx.arc(mx, my, 3 * dpr, 0, Math.PI * 2)
+    ctx.fill()
   }
 }
 
@@ -270,10 +298,18 @@ function Legend({ layer, data }: { layer: MapLayer; data: LayerData }) {
   )
 }
 
-export function MapView({ game }: { game: GameState }) {
+interface MapViewProps {
+  game: GameState
+  focus?: MapFocus | null
+  /** Called once the map has moved to `focus`, so it is not shown again when the map remounts. */
+  onFocused?: () => void
+}
+
+export function MapView({ game, focus, onFocused }: MapViewProps) {
   const [layer, setLayer] = useState<MapLayer>(() => loadMapPrefs().layer)
   const [view, setView] = useState<View>(FULL)
   const [flash, setFlash] = useState<number[]>([])
+  const [marker, setMarker] = useState<Place | null>(null)
   const dark = useDarkTheme()
   const frameRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -311,6 +347,22 @@ export function MapView({ game }: { game: GameState }) {
     return () => window.clearTimeout(id)
   }, [map])
 
+  // News asked to show a place: zoom in on it and ring it for a while.
+  useEffect(() => {
+    if (!focus) return
+    const [e, n] = focus.place
+    setView({ z: FOCUS_ZOOM, cx: (e - MAP_ORIGIN.e) / MAP_CELL, cy: (MAP_ORIGIN.n - n) / MAP_CELL })
+    setMarker(focus.place)
+    onFocused?.()
+    // Only a new request moves the map.
+  }, [focus?.key])
+
+  useEffect(() => {
+    if (!marker) return
+    const id = window.setTimeout(() => setMarker(null), MARKER_MS)
+    return () => window.clearTimeout(id)
+  }, [marker])
+
   const size = useMapSize(frameRef, 480)
 
   const bitmap = useMemo(() => {
@@ -340,8 +392,8 @@ export function MapView({ game }: { game: GameState }) {
 
   useEffect(() => {
     const canvas = canvasRef.current
-    if (canvas && bitmap && W > 0) drawMap(canvas, { bitmap, map, t, W, H, cellPx, cx: v.cx, cy: v.cy, flash, dpr })
-  }, [bitmap, map, flash, W, H, cellPx, v.cx, v.cy, dpr, t])
+    if (canvas && bitmap && W > 0) drawMap(canvas, { bitmap, map, t, W, H, cellPx, cx: v.cx, cy: v.cy, flash, dpr, marker })
+  }, [bitmap, map, flash, W, H, cellPx, v.cx, v.cy, dpr, t, marker])
 
   // Ctrl or Cmd with the wheel zooms; a plain wheel keeps scrolling the page.
   useEffect(() => {
@@ -459,22 +511,28 @@ export function MapView({ game }: { game: GameState }) {
   )
 }
 
-/** The map above the news on wide screens; it can be folded away. */
-export function MapCard({ game }: { game: GameState }) {
+/** The map above the news on wide screens; it can be folded away, and unfolds when news asks to show a place. */
+export function MapCard({ game, focus, onFocused }: MapViewProps) {
   const [open, setOpen] = useState(() => loadMapPrefs().open)
+  const ref = useRef<HTMLElement>(null)
   const toggle = () => {
     setOpen(!open)
     saveMapPrefs({ ...loadMapPrefs(), open: !open })
   }
+  useEffect(() => {
+    if (!focus) return
+    setOpen(true)
+    ref.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [focus])
   return (
-    <section className="card map-card" aria-label="地圖">
+    <section className="card map-card" aria-label="地圖" ref={ref}>
       <div className="map-head">
         <h2 className="card-title">地圖</h2>
         <button className="button small-button map-toggle" onClick={toggle} aria-expanded={open}>
           {open ? '收起' : '展開'}
         </button>
       </div>
-      {open && <MapView game={game} />}
+      {open && <MapView game={game} focus={focus} onFocused={onFocused} />}
     </section>
   )
 }

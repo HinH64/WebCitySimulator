@@ -4,10 +4,10 @@ import { computeIndicators } from '../engine/indicators'
 import { APPROVAL } from '../engine/approval'
 import { answer, debtTotal, metricsNow, step } from '../engine/sim'
 import { START_YEAR, monthOf, yearOf } from '../engine/time'
-import type { GameState, Signal } from '../engine/types'
+import type { GameState, Place, Signal } from '../engine/types'
 import { Inbox } from './Inbox'
 import { Concerns, IndicatorStrip } from './Indicators'
-import { MapCard, MapView } from './MapView'
+import { MapCard, MapView, type MapFocus } from './MapView'
 import { NewsFeed } from './NewsFeed'
 import { BudgetPanel } from './panels/BudgetPanel'
 import { DebtPanel } from './panels/DebtPanel'
@@ -86,6 +86,7 @@ export function GameScreen({ game, initialSpeed, settings, onSettings, onEnd, on
   const [editing, setEditing] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [showSources, setShowSources] = useState(false)
+  const [mapFocus, setMapFocus] = useState<MapFocus | null>(null)
   const narrow = useNarrow()
   const progress = useRef(0)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -166,6 +167,19 @@ export function GameScreen({ game, initialSpeed, settings, onSettings, onEnd, on
     else setSideOpen(false)
     setEditing(false)
   }
+
+  // On wide screens the map card above the news unfolds; on narrow ones the map panel opens.
+  const showPlace = useCallback(
+    (place: Place) => {
+      setMapFocus({ place, key: performance.now() })
+      if (narrow) {
+        setPanel('map')
+        setSheetOpen(true)
+      }
+    },
+    [narrow],
+  )
+  const mapFocused = useCallback(() => setMapFocus(null), [])
 
   const onAnswer = (uid: number, optionId: string) => {
     answer(game, uid, optionId)
@@ -281,10 +295,10 @@ export function GameScreen({ game, initialSpeed, settings, onSettings, onEnd, on
 
       <main className={`layout ${!narrow && !sideOpen ? 'side-closed' : ''}`}>
         <div className="news-col">
-          {!narrow && <MapCard game={game} />}
+          {!narrow && <MapCard game={game} focus={mapFocus} onFocused={mapFocused} />}
           <Concerns concerns={view.concerns} onSelect={(row) => openPanel('demand', row)} />
           <Inbox items={game.inbox} now={game.t} onAnswer={onAnswer} />
-          <NewsFeed news={game.news} count={game.news.length} />
+          <NewsFeed news={game.news} count={game.news.length} onPlace={showPlace} />
         </div>
 
         {!narrow && !sideOpen && tabs('side-rail')}
@@ -307,7 +321,7 @@ export function GameScreen({ game, initialSpeed, settings, onSettings, onEnd, on
               </button>
             </div>
             <div className="side-body">
-              {shown === 'map' && <MapView game={game} />}
+              {shown === 'map' && <MapView game={game} focus={mapFocus} onFocused={mapFocused} />}
               {shown === 'budget' && <BudgetPanel game={game} metrics={m} onChange={bump} />}
               {shown === 'demand' && <DemandPanel rows={view.rows} focus={focusRow} />}
               {shown === 'population' && <PopulationPanel game={game} metrics={m} />}

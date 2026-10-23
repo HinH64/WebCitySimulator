@@ -55,6 +55,8 @@ export type Effect =
   | { kind: 'policy'; id: string; level: string; at?: number }
   /** Multiplies every department's funding level. */
   | { kind: 'funding'; factor: number }
+  /** Raises one department's funding level, e.g. 0.1 = ten points. */
+  | { kind: 'dept'; id: DeptId; delta: number }
   /** Raises a tax rate by percentage points from now on. */
   | { kind: 'tax'; id: TaxId; delta: number }
   | { kind: 'bond'; amount: number; years: number }
@@ -63,6 +65,20 @@ export interface ChoiceOption {
   id: string
   label: string
   effects: Effect[]
+}
+
+/** A spot on the map, Hong Kong 1980 Grid metres (easting, northing). */
+export type Place = [number, number]
+
+/**
+ * A historical shock that hits harder or softer depending on how ready the city is. Real data
+ * already contains the shock as real Hong Kong felt it, so only the city's difference counts.
+ */
+export interface Shock {
+  /** Epidemics look at hospital and care places, storms at upkeep, financial crises at reserves. */
+  kind: 'epidemic' | 'storm' | 'financial'
+  /** How big the shock was, 1 = SARS, Typhoon Hato or the Asian financial crisis. */
+  size: number
 }
 
 export interface HistoryEvent {
@@ -76,6 +92,9 @@ export interface HistoryEvent {
   requiresPolicy?: { id: string; levels: string[] }
   /** Shown instead when a requirement is not met; omitted means nothing is shown. */
   altText?: string
+  /** Where it happened, for news that opens the map; only with the main text. */
+  place?: Place
+  shock?: Shock
 }
 
 export interface HistoryChoice {
@@ -136,6 +155,10 @@ export interface CityContext {
   migration12: number
   /** The city one, two, three and five years ago (from the yearly snapshots). */
   ago: (years: 1 | 2 | 3 | 5) => Metrics
+  /** Approval at the end of last month. */
+  approval: number
+  /** Pressing problems people feel the government has not answered, worst first. */
+  grievances: AreaId[]
 }
 
 /** Follows from the city's state when it crosses a threshold. */
@@ -150,10 +173,13 @@ export interface ParallelEvent {
   text: string | ((c: CityContext) => string)
   tone: 'good' | 'bad' | 'neutral'
   effects?: Effect[]
-  options?: ChoiceOption[]
+  /** A decision for the player; options can depend on the city, e.g. its worst problems. */
+  options?: ChoiceOption[] | ((c: CityContext) => ChoiceOption[])
   defaultOptionId?: string
   /** Areas people see answering it as a response to. */
   areas?: AreaId[]
+  /** Where it may happen; one is picked by month, so the map can show it. */
+  places?: Place[]
 }
 
 export type CityEventCategory = 'transport' | 'housing' | 'health' | 'economy' | 'environment' | 'weather' | 'education' | 'society'
@@ -169,6 +195,8 @@ export interface CityEvent {
   text: string | ((c: CityContext) => string)
   tone: 'good' | 'bad' | 'neutral'
   effects?: Effect[]
+  /** Where it may happen; one is picked by month, so the map can show it. */
+  places?: Place[]
 }
 
 export interface InboxItem {
@@ -202,6 +230,8 @@ export interface NewsItem {
   text: string
   tone?: 'good' | 'bad' | 'neutral'
   category?: CityEventCategory
+  /** Where it happened; the feed offers to show it on the map. */
+  place?: Place
 }
 
 export interface Bond {
