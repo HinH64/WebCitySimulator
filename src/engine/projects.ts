@@ -16,6 +16,7 @@ import {
   type CellChange,
   type CityChanges,
   type CityMap,
+  type HomesFirst,
   type Railway,
 } from './map'
 import { computeMetrics } from './metrics'
@@ -176,12 +177,12 @@ function describe(now: CityChanges, later: CityChanges): CityWork[] {
  * Fills in when works under construction are due, by moving the window ahead a few months at a time.
  * Returns the works without real lines that would open on their own first: those are not the city's.
  */
-function addDue(works: CityWork[], s: GameState, m: Metrics, t: number, sectorMonth: number): CityWork[] {
+function addDue(works: CityWork[], s: GameState, m: Metrics, t: number, sectorMonth: number, homesFirst: HomesFirst = 'history'): CityWork[] {
   // Rebuilding old flats takes REBUILD_MONTHS from when each comes down, so it has no one due date.
   const waiting = works.filter((w) => w.state === 'building' && !w.clearing && w.kind !== 'renewal')
   for (const k of DUE_SAMPLES) {
     if (!waiting.some((w) => w.due === undefined)) break
-    const at = cityChanges(ahead(s, m, k), t, sectorMonth)
+    const at = cityChanges(ahead(s, m, k), t, sectorMonth, homesFirst)
     const cells = new Set(at.added.map((c) => c.cell))
     for (const w of waiting) {
       if (w.due !== undefined) continue
@@ -204,12 +205,12 @@ export interface CityWorks {
 }
 
 /** Everything the screen shows about the city's works at the month on the clock. */
-export function cityWorks(s: GameState): CityWorks {
+export function cityWorks(s: GameState, homesFirst: HomesFirst = 'history'): CityWorks {
   const t = Math.min(s.t, LAST_MONTH_INDEX)
   const m = computeMetrics(s, t)
   // The industry mix is the one at the start of month s.t, as on the map (cityMapAt).
-  const now = cityChanges(m, t, s.t)
-  const works = addDue(describe(now, cityChanges(ahead(s, m, RAIL_AHEAD), t, s.t)), s, m, t, s.t)
+  const now = cityChanges(m, t, s.t, homesFirst)
+  const works = addDue(describe(now, cityChanges(ahead(s, m, RAIL_AHEAD), t, s.t, homesFirst)), s, m, t, s.t, homesFirst)
   const map = mapWithChanges(now, t, m.pm10)
   for (const w of works) for (const c of w.building) map.grid[c] = KIND_INDEX.construction
   const lines = (keep: (w: CityWork) => boolean) =>

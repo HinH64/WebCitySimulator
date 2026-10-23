@@ -6,8 +6,10 @@ import {
   KIND_INDEX,
   areaCells,
   baseMap,
+  cityChanges,
   cityMapAt,
   cityMapFrom,
+  mapWithChanges,
   peoplePerCell,
   projectCells,
   railCoverage,
@@ -18,6 +20,7 @@ import {
   regionOf,
   regionalPrices,
   stationPosition,
+  type HomesFirst,
 } from '../src/engine/map'
 import { MAP_CELL, MAP_ORIGIN } from '../src/data/mapBase'
 import { MAP_PRICES } from '../src/data/mapPrices'
@@ -151,6 +154,40 @@ describe('the city on the map', () => {
     }
     const s = playThrough(3, tech)
     expect(kinds(cityMapAt(s).grid, 'sciencePark')).toBeGreaterThan(kinds(realMapAt(at(s)), 'sciencePark'))
+  })
+
+  it('puts the same extra homes first in the growth area the city chooses', () => {
+    const s = playThrough(1, boost('housing', 1.8), { events: false })
+    const last = s.snapshots.at(-1)!
+    const homes = (first: HomesFirst) =>
+      new Set(cityChanges(last.metrics, last.t, last.t + 1, first).added.filter((c) => c.kind === KIND_INDEX.public || c.kind === KIND_INDEX.private).map((c) => c.cell))
+    const placed = { history: homes('history'), north: homes('north'), lantau: homes('lantau'), urban: homes('urban') }
+    expect(differing(cityMapFrom(last.metrics, last.t, last.t + 1).grid, mapWithChanges(cityChanges(last.metrics, last.t, last.t + 1, 'history'), last.t, last.metrics.pm10).grid)).toBe(0)
+    for (const set of Object.values(placed)) expect(set.size).toBe(placed.history.size)
+
+    // Country park edge land is cleared whatever the direction; the rest goes to the chosen area.
+    const edge = new Set(CANDIDATE_SITES.filter((c) => c.countryPark).flatMap((c) => areaCells(c.area)))
+    const lantau = new Set(CANDIDATE_SITES.filter((c) => c.growthArea === 'lantau').flatMap((c) => areaCells(c.area)))
+    const directed = [...placed.lantau].filter((c) => !edge.has(c))
+    expect(directed.length).toBeGreaterThan(20)
+    expect(directed.every((c) => lantau.has(c))).toBe(true)
+    const shared = [...placed.north].filter((c) => placed.lantau.has(c)).length
+    expect(shared / (placed.north.size + placed.lantau.size - shared)).toBeLessThan(0.3)
+  })
+
+  it('marks old flats the city has rebuilt, and none when following history', () => {
+    const renewal: Strategy = {
+      onMonth: (s) => {
+        FOLLOW_HISTORY.onMonth!(s)
+        setPolicy(s, 'renewal', 'fast')
+      },
+      choose: FOLLOW_HISTORY.choose,
+    }
+    const map = cityMapAt(playThrough(3, renewal))
+    const districts = new Set(CANDIDATE_SITES.filter((c) => c.use === 'renewal').flatMap((c) => areaCells(c.area)))
+    expect(map.rebuilt?.length).toBeGreaterThan(0)
+    expect(map.rebuilt!.every((c) => districts.has(c) && map.grid[c] === KIND_INDEX.private)).toBe(true)
+    expect(cityMapAt(playThrough(3, FOLLOW_HISTORY, { events: false })).rebuilt).toBeUndefined()
   })
 
   it('draws a month quickly', () => {

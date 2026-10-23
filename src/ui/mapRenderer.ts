@@ -1,6 +1,6 @@
 import { MAP_COLS, MAP_ROWS, MAP_TILE_KINDS } from '../data/mapBase'
 import type { TileKind } from '../data/mapProjects'
-import { lightRailStops, type CityMap, type RailSegment, type Railway } from '../engine/map'
+import { lightRailStops, realMapAt, type CityMap, type RailSegment, type Railway } from '../engine/map'
 import type { CityWork } from '../engine/projects'
 import type { Place } from '../engine/types'
 import { KIND_COLOUR, hexToRgb } from './mapStyle'
@@ -40,6 +40,9 @@ interface Sprite { canvas: HTMLCanvasElement; x: number; y: number; w: number; h
 let spriteSettings = ''
 const sprites = new Map<string, Sprite>()
 
+/** The land use when the term starts; a cell that differs has been built on since. */
+let startGrid: Uint8Array | undefined
+
 /** One pixel per cell in land-use colours, sea left clear. A map's grid is not changed once made. */
 const landBitmaps = new WeakMap<Uint8Array, HTMLCanvasElement>()
 function landBitmap(grid: Uint8Array): HTMLCanvasElement {
@@ -77,17 +80,17 @@ function drawGrid(ctx: CanvasRenderingContext2D, tr: Transform, image: HTMLCanva
 }
 
 /** Repeated buildings use the same tiny drawing. Clear on scale/DPR changes to bound memory. */
-function cellSprite(tr: Transform, dpr: number, kind: TileKind, ornament: number, building: boolean, ground: boolean): Sprite {
+function cellSprite(tr: Transform, dpr: number, kind: TileKind, ornament: number, building: boolean, ground: boolean, fresh = false): Sprite {
   const settings = `${tr.projection}:${tr.scale.toFixed(4)}:${dpr}`
   if (spriteSettings !== settings) { sprites.clear(); spriteSettings = settings }
-  const key = `${kind}:${ground ? 'ground' : ornament}:${kind === 'construction' && building}`
+  const key = `${kind}:${ground ? 'ground' : ornament}:${kind === 'construction' && building}:${fresh}`
   const cached = sprites.get(key)
   if (cached) return cached
   const iso = tr.projection === 'iso'
   const x = iso ? tr.scale + 2 : 2
-  const y = iso && !ground ? 3 * tr.scale + 2 : 2
+  const y = iso && !ground ? 4 * tr.scale + 2 : 2
   const w = Math.ceil((iso ? 2 : 1) * tr.scale + 4)
-  const h = Math.ceil((iso ? ground ? 1 : 4 : 1) * tr.scale + 4)
+  const h = Math.ceil((iso ? ground ? 1 : 5 : 1) * tr.scale + 4)
   const canvas = document.createElement('canvas')
   canvas.width = Math.ceil(w * dpr)
   canvas.height = Math.ceil(h * dpr)
@@ -97,7 +100,7 @@ function cellSprite(tr: Transform, dpr: number, kind: TileKind, ornament: number
   if (ground) {
     const colour = ['public', 'private', 'commercial', 'institution', 'sciencePark'].includes(kind) ? '#cdd3c5' : KIND_COLOUR[kind]
     polygon(ctx, footprint(local, ornament, 0, 0, 0, 1.015, 1.015), colour)
-  } else objects(ctx, local, ornament, 0, kind, building)
+  } else objects(ctx, local, ornament, 0, kind, building, fresh)
   const sprite = { canvas, x, y, w: canvas.width / dpr, h: canvas.height / dpr }
   sprites.set(key, sprite)
   return sprite
@@ -150,15 +153,29 @@ function block(ctx: CanvasRenderingContext2D, tr: Transform, c: number, r: numbe
   }
 }
 
-function objects(ctx: CanvasRenderingContext2D, tr: Transform, c: number, r: number, kind: TileKind, building: boolean) {
+/**
+ * Buildings on one cell. `fresh` ones went up during the term (real or the city's own, including old
+ * flats rebuilt): taller towers in cleaner colours, so a player can tell what was built on their watch.
+ */
+function objects(ctx: CanvasRenderingContext2D, tr: Transform, c: number, r: number, kind: TileKind, building: boolean, fresh: boolean) {
   const variation = ((c * 31 + r * 17) % 5) * 0.08
   const colour = KIND_COLOUR[kind]
   const b = (x: number, y: number, w: number, d: number, h: number, col = colour) => block(ctx, tr, c, r, x, y, w, d, h, col)
-  if (kind === 'public') {
+  if (kind === 'public' && fresh) {
+    b(0.14, 0.14, 0.26, 0.26, 2.3 + variation, '#e2b56c')
+    b(0.58, 0.52, 0.26, 0.26, 2 + variation, '#efd29c')
+  } else if (kind === 'public') {
     b(0.12, 0.12, 0.22, 0.7, 1.5 + variation, '#d3aa65')
     b(0.57, 0.12, 0.22, 0.7, 1.5 + variation, '#e7c98d')
+  } else if (kind === 'private' && fresh) {
+    b(0.12, 0.14, 0.24, 0.24, 2.5 + variation, '#d4867c')
+    b(0.6, 0.12, 0.24, 0.24, 2.1 + variation, '#e2aaa2')
+    b(0.36, 0.6, 0.24, 0.24, 2.8 + variation, '#dc978e')
   } else if (kind === 'private') {
     for (const [x, y] of [[0.12, 0.12], [0.57, 0.12], [0.12, 0.57], [0.57, 0.57]]) b(x, y, 0.28, 0.28, 1.05 + variation, '#cb8c83')
+  } else if (kind === 'commercial' && fresh) {
+    b(0.1, 0.1, 0.8, 0.8, 0.25, '#b7bdcd')
+    b(0.3, 0.3, 0.36, 0.36, 3.2 + variation, '#7f9bc6')
   } else if (kind === 'commercial') {
     b(0.12, 0.12, 0.3, 0.55, 2 + variation, '#8a93b0')
     b(0.57, 0.3, 0.28, 0.5, 1.5 + variation, '#b0b7ca')
@@ -227,15 +244,18 @@ export function renderScene(canvas: HTMLCanvasElement, options: RenderOptions): 
       ctx.drawImage(sprite.canvas, x - sprite.x, y - sprite.y, sprite.w, sprite.h)
     }
     const building = new Set(frame.works?.flatMap((w) => w.building) ?? [])
+    const july1997 = (startGrid ??= realMapAt(0))
+    const rebuilt = new Set(frame.map.rebuilt)
     for (const i of cells) {
       const kind = MAP_TILE_KINDS[frame.map.grid[i]] as TileKind
       if (!['public', 'private', 'commercial', 'industrial', 'logistics', 'port', 'institution', 'sciencePark', 'village', 'construction', 'woodland', 'park', 'shrubGrass'].includes(kind)) continue
       const c = i % MAP_COLS
       const r = Math.floor(i / MAP_COLS)
       const [x, y] = project(tr, c, r)
-      if (x + tr.scale < 0 || x - tr.scale > width || y + tr.scale < 0 || y - 3 * tr.scale > height) continue
+      if (x + tr.scale < 0 || x - tr.scale > width || y + tr.scale < 0 || y - 4 * tr.scale > height) continue
       if ((kind === 'woodland' || kind === 'shrubGrass') && (c + r) % 2 !== 0) continue
-      const sprite = cellSprite(tr, dpr, kind, (c * 31 + r * 17) % 10, building.has(i), false)
+      const fresh = frame.map.grid[i] !== july1997[i] || rebuilt.has(i)
+      const sprite = cellSprite(tr, dpr, kind, (c * 31 + r * 17) % 10, building.has(i), false, fresh)
       ctx.drawImage(sprite.canvas, x - sprite.x, y - sprite.y, sprite.w, sprite.h)
     }
   }

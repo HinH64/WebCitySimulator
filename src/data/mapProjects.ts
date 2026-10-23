@@ -28,9 +28,14 @@ export interface ProjectStep {
   share: number
 }
 
+/** Where a city can direct its extra homes first (docs/SPATIAL.md): the north, Lantau and reclamation, or the urban area. */
+export type GrowthArea = 'north' | 'lantau' | 'urban'
+
 export interface MapProject {
   id: string
   name: string
+  /** For projects with homes: the growth area they belong to. */
+  growthArea?: GrowthArea
   area: MapArea
   /** What the cells were in July 1997. */
   before: TileKind
@@ -92,6 +97,7 @@ export const MAP_PROJECTS: MapProject[] = [
   {
     id: 'tungChung',
     name: '東涌新市鎮',
+    growthArea: 'lantau',
     area: { polygon: [[809800, 815300], [812600, 815300], [812600, 817300], [809800, 817300]], kinds: URBAN },
     before: 'construction',
     steps: [step(1997, 7, 'base', 0.1), step(1999, 1, 'base', 0.3), step(2002, 1, 'base', 0.6), step(2006, 1, 'base', 0.85), step(2012, 1, 'base')],
@@ -110,6 +116,7 @@ export const MAP_PROJECTS: MapProject[] = [
   {
     id: 'westKowloon',
     name: '西九龍填海區',
+    growthArea: 'urban',
     area: {
       polygon: [[833200, 821400], [834300, 821400], [834700, 820000], [835250, 819000], [835250, 817250], [833200, 817250]],
       kinds: URBAN,
@@ -122,6 +129,7 @@ export const MAP_PROJECTS: MapProject[] = [
   {
     id: 'kaiTak',
     name: '啟德',
+    growthArea: 'urban',
     area: {
       polygon: [[837600, 821400], [839200, 821600], [839900, 820600], [841700, 818200], [841200, 817600], [839300, 819500], [837600, 819900]],
       kinds: LAND,
@@ -134,6 +142,7 @@ export const MAP_PROJECTS: MapProject[] = [
   {
     id: 'tseungKwanO',
     name: '將軍澳市中心及南部',
+    growthArea: 'urban',
     area: { polygon: [[843300, 816500], [846700, 816500], [846700, 819300], [843300, 819300]], kinds: URBAN.filter((k) => k !== 'sciencePark' && k !== 'industrial') },
     before: 'construction',
     steps: [step(1998, 1, 'base', 0.1), step(2000, 1, 'base', 0.25), step(2002, 8, 'base', 0.45), step(2005, 1, 'base', 0.6), step(2009, 7, 'base', 0.8), step(2016, 1, 'base', 0.9), step(2024, 1, 'base')],
@@ -143,6 +152,7 @@ export const MAP_PROJECTS: MapProject[] = [
   {
     id: 'tinShuiWaiNorth',
     name: '天水圍北',
+    growthArea: 'north',
     area: { polygon: [[816800, 835300], [819700, 835300], [819700, 837100], [816800, 837100]], kinds: URBAN },
     before: 'construction',
     steps: [step(2000, 1, 'base', 0.3), step(2001, 7, 'base', 0.6), step(2006, 5, 'base', 0.85), step(2008, 1, 'base')],
@@ -152,6 +162,7 @@ export const MAP_PROJECTS: MapProject[] = [
   {
     id: 'andersonRoad',
     name: '安達臣道發展區',
+    growthArea: 'urban',
     area: { polygon: [[842400, 820300], [844400, 820300], [844400, 822100], [842400, 822100]], kinds: ['public', 'private', 'construction', 'institution', 'park', 'road'] },
     before: 'shrubGrass',
     steps: [step(2009, 1, 'construction', 0.5), step(2016, 1, 'base', 0.3), step(2018, 1, 'base', 0.7), step(2022, 1, 'base')],
@@ -187,6 +198,7 @@ export const MAP_PROJECTS: MapProject[] = [
   {
     id: 'cyberport',
     name: '數碼港',
+    growthArea: 'urban',
     homesName: '數碼港貝沙灣',
     area: { polygon: [[830600, 812800], [832000, 812800], [832000, 814200], [830600, 814200]], kinds: ['commercial', 'sciencePark', 'private', 'park', 'otherUrban'] },
     before: 'construction',
@@ -273,20 +285,24 @@ export interface CandidateSite {
   earliest: YearMonth
   /** Only for the country park edge policy. */
   countryPark?: boolean
+  /** For housing sites: the growth area they belong to. */
+  growthArea?: GrowthArea
   source: string
 }
 
 /** Sites proposed in real plans but not built, or built later than a bolder city could have. */
 export const CANDIDATE_SITES: CandidateSite[] = [
-  { id: 'tungChungEastHousing', name: '東涌東', area: { polygon: [[812600, 816600], [815600, 816600], [815600, 818300], [812600, 818300]], kinds: ['construction'] }, use: 'housing', earliest: [2008, 1], source: '東涌新市鎮擴展研究（2012 年起）' },
-  { id: 'kwuTungNorth', name: '古洞北', area: { polygon: [[827800, 839400], [831000, 839400], [831000, 841800], [827800, 841800]], kinds: ['construction', 'farm', 'logistics', 'village'] }, use: 'housing', earliest: [2003, 1], source: '新界東北新發展區規劃（1998 年研究，2013 年定案）' },
-  { id: 'fanlingNorth', name: '粉嶺北', area: { polygon: [[831000, 839800], [834800, 839800], [834800, 841800], [831000, 841800]], kinds: ['construction', 'farm', 'logistics', 'village'] }, use: 'housing', earliest: [2003, 1], source: '新界東北新發展區規劃' },
-  { id: 'hungShuiKiuHousing', name: '洪水橋', area: { polygon: [[816000, 830800], [819600, 830800], [819600, 833400], [816000, 833400]], kinds: ['construction', 'logistics', 'farm'] }, use: 'housing', earliest: [2005, 1], source: '洪水橋新發展區規劃研究（2011 年）' },
-  { id: 'yuenLongSouth', name: '元朗南', area: { polygon: [[819600, 830500], [822600, 830500], [822600, 833200], [819600, 833200]], kinds: ['logistics', 'farm', 'construction'] }, use: 'housing', earliest: [2010, 1], source: '元朗南發展規劃研究（2012 年）' },
-  { id: 'tko137', name: '將軍澳 137 區', area: { polygon: [[845600, 813800], [847800, 813800], [847800, 815600], [845600, 815600]], kinds: ['construction', 'otherUrban'] }, use: 'housing', earliest: [2005, 1], source: '將軍澳 137 區發展研究' },
-  { id: 'kauYiChau', name: '交椅洲人工島', area: { polygon: [[825000, 813600], [828200, 813600], [828200, 816200], [825000, 816200]], kinds: ['sea'] }, use: 'housing', earliest: [2015, 1], source: '「明日大嶼願景」（2018 年施政報告）' },
+  { id: 'tungChungEastHousing', name: '東涌東', area: { polygon: [[812600, 816600], [815600, 816600], [815600, 818300], [812600, 818300]], kinds: ['construction'] }, use: 'housing', growthArea: 'lantau', earliest: [2008, 1], source: '東涌新市鎮擴展研究（2012 年起）' },
+  { id: 'kwuTungNorth', name: '古洞北', area: { polygon: [[827800, 839400], [831000, 839400], [831000, 841800], [827800, 841800]], kinds: ['construction', 'farm', 'logistics', 'village'] }, use: 'housing', growthArea: 'north', earliest: [2003, 1], source: '新界東北新發展區規劃（1998 年研究，2013 年定案）' },
+  { id: 'fanlingNorth', name: '粉嶺北', area: { polygon: [[831000, 839800], [834800, 839800], [834800, 841800], [831000, 841800]], kinds: ['construction', 'farm', 'logistics', 'village'] }, use: 'housing', growthArea: 'north', earliest: [2003, 1], source: '新界東北新發展區規劃' },
+  { id: 'hungShuiKiuHousing', name: '洪水橋', area: { polygon: [[816000, 830800], [819600, 830800], [819600, 833400], [816000, 833400]], kinds: ['construction', 'logistics', 'farm'] }, use: 'housing', growthArea: 'north', earliest: [2005, 1], source: '洪水橋新發展區規劃研究（2011 年）' },
+  { id: 'yuenLongSouth', name: '元朗南', area: { polygon: [[819600, 830500], [822600, 830500], [822600, 833200], [819600, 833200]], kinds: ['logistics', 'farm', 'construction'] }, use: 'housing', growthArea: 'north', earliest: [2010, 1], source: '元朗南發展規劃研究（2012 年）' },
+  { id: 'tko137', name: '將軍澳 137 區', area: { polygon: [[845600, 813800], [847800, 813800], [847800, 815600], [845600, 815600]], kinds: ['construction', 'otherUrban'] }, use: 'housing', growthArea: 'urban', earliest: [2005, 1], source: '將軍澳 137 區發展研究' },
+  { id: 'kauYiChau', name: '交椅洲人工島', area: { polygon: [[825000, 813600], [828200, 813600], [828200, 816200], [825000, 816200]], kinds: ['sea'] }, use: 'housing', growthArea: 'lantau', earliest: [2015, 1], source: '「明日大嶼願景」（2018 年施政報告）' },
   { id: 'sanTin', name: '新田科技城', area: { polygon: [[823000, 838000], [827000, 838000], [827000, 840800], [823000, 840800]], kinds: ['fishPond', 'farm', 'logistics', 'construction'] }, use: 'professional', earliest: [2010, 1], source: '北部都會區發展策略（2021 年）' },
   { id: 'kowloonEast', name: '九龍東商業區', area: { polygon: [[839800, 818600], [842000, 818600], [842000, 820600], [839800, 820600]], kinds: ['industrial'] }, use: 'finance', earliest: [2002, 1], source: '「起動九龍東」（2011 年施政報告）' },
+  // The east end of the Kau Yi Chau island, nearest Hong Kong Island; shared with the housing site, and industry is placed first.
+  { id: 'kauYiChauCore', name: '交椅洲核心商業區', area: { polygon: [[827200, 814300], [828200, 814300], [828200, 815800], [827200, 815800]], kinds: ['sea'] }, use: 'finance', earliest: [2015, 1], source: '「明日大嶼願景」（2018 年施政報告）：交椅洲人工島的第三個核心商業區' },
   { id: 'tuenMunWest', name: '屯門西物流區', area: { polygon: [[807500, 825500], [811000, 825500], [811000, 828500], [807500, 828500]], kinds: ['sea', 'shrubGrass', 'barren'] }, use: 'trade', earliest: [2000, 1], source: '屯門西發展研究；龍鼓灘填海建議（2015 年）' },
   { id: 'sunnyBay', name: '欣澳旅遊區', area: { polygon: [[820300, 821000], [822200, 821000], [822200, 822600], [820300, 822600]], kinds: ['sea', 'shrubGrass'] }, use: 'tourism', earliest: [2005, 1], source: '欣澳填海建議（2014 年）' },
   { id: 'taiLamEdge', name: '大欖郊野公園邊陲', area: { polygon: [[826300, 826300], [828600, 826300], [828600, 828000], [826300, 828000]], kinds: ['woodland', 'shrubGrass'] }, use: 'housing', earliest: [1998, 1], countryPark: true, source: '2017 年施政報告：研究在郊野公園邊陲建屋' },

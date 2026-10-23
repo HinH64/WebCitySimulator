@@ -12,6 +12,7 @@ import {
   PRICE_REGIONS,
   RAIL_ROUTES,
   type CandidateSite,
+  type GrowthArea,
   type MapArea,
   type MapProject,
   type TileKind,
@@ -240,6 +241,7 @@ interface HousingCell {
   before: number
   /** The post-1997 project it belongs to. */
   project: string
+  area?: GrowthArea
 }
 
 const housingOrderCache = new Map<Housing, HousingCell[]>()
@@ -258,7 +260,7 @@ function realHousingOrder(kind: Housing): HousingCell[] {
         for (const s of p.steps) {
           if (idx >= Math.round(s.share * cells.length)) continue
           if (s.kind === 'base') {
-            order!.push({ cell, month: monthIndex(...s.from), before: current, project: p.id })
+            order!.push({ cell, month: monthIndex(...s.from), before: current, project: p.id, area: p.growthArea })
             return
           }
           current = KIND_INDEX[s.kind]
@@ -341,6 +343,8 @@ export interface CityMap {
   rail: Railway
   /** Air pollution, 0 (clear) to 1 (heavy haze). */
   haze: number
+  /** Old-district cells the city has rebuilt beyond history: still private homes, but new buildings. */
+  rebuilt?: number[]
 }
 
 /** Real Hong Kong at month t, as a city map. */
@@ -371,14 +375,20 @@ export interface CityChanges {
   added: CellChange[]
   /** Real homes the city has not built; `kind` is what the cell still is. */
   removed: CellChange[]
+  /** Old private flats the city has rebuilt beyond history (the cells keep their kind). */
+  rebuilt: number[]
   rail: CityRail
 }
+
+/** Where extra homes go first: history's order, or one growth area (docs/SPATIAL.md). */
+export type HomesFirst = 'history' | GrowthArea
 
 /**
  * Where the city's figures at month t (now, or a yearly snapshot) differ from real Hong Kong's on the map.
  * - Homes: extra public and private homes go first on country park edge land the city gave up, then on
- *   sites real Hong Kong developed later, then on candidate sites. Missing homes take the newest real
- *   estates off the map.
+ *   sites real Hong Kong developed later, then on candidate sites. With `homesFirst` a growth area, its
+ *   later real estates and candidate sites come before the rest; the number of homes is the same.
+ *   Missing homes take the newest real estates off the map.
  * - Industries ahead of history fill their candidate sites (finance offices, trade logistics, tourism
  *   attractions, science parks).
  * - Rail ahead of or behind history opens or removes lines (cityRail).
@@ -386,7 +396,7 @@ export interface CityChanges {
  * `sectorMonth` is the month whose real industry mix `m.sectors` matches: the current month for a city in
  * play, the next one for a yearly snapshot, which records the mix after the month's growth.
  */
-export function cityChanges(m: Metrics, t: number, sectorMonth = t): CityChanges {
+export function cityChanges(m: Metrics, t: number, sectorMonth = t, homesFirst: HomesFirst = 'history'): CityChanges {
   const real = realMetrics(t)
   // Keyed by cell: a cell cleared on a country park edge can then take homes.
   const added = new Map<number, CellChange>()
@@ -405,14 +415,17 @@ export function cityChanges(m: Metrics, t: number, sectorMonth = t): CityChanges
   // Old flats being rebuilt beyond history are building sites in the old districts, which move on
   // through the districts as flats are finished.
   const rebuilding = Math.round(Math.max(0, m.redeveloping) / unitsPerCell('private'))
-  if (rebuilding > 0) {
+  const renewed = Math.round(Math.max(0, m.renewed) / unitsPerCell('private'))
+  let rebuilt: number[] = []
+  if (rebuilding > 0 || renewed > 0) {
     newEstates ??= new Set(MAP_PROJECTS.flatMap((p) => projectCells(p)))
     const pool = sitePool(t, (site) => site.use === 'renewal', taken).filter((c) => !newEstates!.has(c.cell))
-    const start = Math.round(Math.max(0, m.renewed) / unitsPerCell('private'))
     for (let k = 0; k < Math.min(rebuilding, pool.length); k++) {
-      const c = pool[(start + k) % pool.length]
+      const c = pool[(renewed + k) % pool.length]
       put(c.cell, 'construction', c.owner)
     }
+    // Rebuilding moves on through the pool, so the cells before it are the finished ones.
+    rebuilt = pool.slice(0, Math.min(renewed, pool.length)).map((c) => c.cell).filter((c) => !taken.has(c))
   }
 
   const shares = realSectors(sectorMonth)
@@ -447,15 +460,20 @@ export function cityChanges(m: Metrics, t: number, sectorMonth = t): CityChanges
     need.public -= pub
     need.private -= n - pub
   }
-  fill(parkEdge)
-  for (const kind of ['public', 'private'] as const) {
-    const later = realHousingOrder(kind).filter((h) => h.month > t && !taken.has(h.cell))
-    for (const h of later.slice(0, need[kind])) put(h.cell, kind, areaKey(h.project))
-    need[kind] -= Math.min(need[kind], later.length)
+  /** Sites real Hong Kong developed later, then candidate sites, of one growth area or of any. */
+  const place = (area?: GrowthArea) => {
+    for (const kind of ['public', 'private'] as const) {
+      const later = realHousingOrder(kind).filter((h) => h.month > t && !taken.has(h.cell) && (!area || h.area === area))
+      for (const h of later.slice(0, need[kind])) put(h.cell, kind, areaKey(h.project))
+      need[kind] -= Math.min(need[kind], later.length)
+    }
+    fill(sitePool(t, (site) => site.use === 'housing' && !site.countryPark && (!area || site.growthArea === area), taken))
   }
-  fill(sitePool(t, (site) => site.use === 'housing' && !site.countryPark, taken))
+  fill(parkEdge)
+  if (homesFirst !== 'history') place(homesFirst)
+  place()
 
-  return { added: [...added.values()], removed, rail: cityRail(m.railKm - real.railKm, t) }
+  return { added: [...added.values()], removed, rebuilt, rail: cityRail(m.railKm - real.railKm, t) }
 }
 
 /** Real Hong Kong's map at month t with the city's changes. */
@@ -463,7 +481,9 @@ export function mapWithChanges(changes: CityChanges, t: number, pm10: number): C
   const grid = realMapAt(t)
   for (const c of changes.removed) grid[c.cell] = c.kind
   for (const c of changes.added) grid[c.cell] = c.kind
-  return { grid, rail: railway(changes.rail.open), haze: hazeOf(pm10) }
+  const map: CityMap = { grid, rail: railway(changes.rail.open), haze: hazeOf(pm10) }
+  if (changes.rebuilt.length) map.rebuilt = changes.rebuilt
+  return map
 }
 
 /** The city's map from its figures at month t: real Hong Kong's map at the same month, changed where the city differs. */

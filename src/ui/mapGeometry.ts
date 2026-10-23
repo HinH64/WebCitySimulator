@@ -10,6 +10,9 @@ export const DISTRICTS: District[] = [
   { id: 'kowloonEast', name: '九龍東', e: 841100, n: 820300, cols: 26, rows: 22 },
   { id: 'sanTin', name: '新田・落馬洲', e: 825400, n: 839500, cols: 30, rows: 22 },
   { id: 'tuenMunWest', name: '屯門西', e: 809800, n: 826800, cols: 30, rows: 24 },
+  { id: 'tungChung', name: '東涌・大嶼山北', e: 812800, n: 816800, cols: 28, rows: 22 },
+  { id: 'kauYiChau', name: '交椅洲', e: 826600, n: 815000, cols: 26, rows: 22 },
+  { id: 'tseungKwanO', name: '將軍澳', e: 845600, n: 816200, cols: 26, rows: 22 },
   { id: 'shamShuiPo', name: '深水埗・油旺', e: 835000, n: 820700, cols: 22, rows: 24 },
   { id: 'all', name: '全港總覽', e: MAP_ORIGIN.e + MAP_COLS * MAP_CELL / 2, n: MAP_ORIGIN.n - MAP_ROWS * MAP_CELL / 2, cols: MAP_COLS, rows: MAP_ROWS },
 ]
@@ -68,7 +71,7 @@ export function zoomCamera(camera: Camera, projection: Projection, width: number
 
 /** Include the screen corners, with room for buildings extending above their ground footprint. */
 export function visibleBounds(tr: Transform, width: number, height: number) {
-  const margin = Math.max(60, tr.scale * 3.5)
+  const margin = Math.max(60, tr.scale * 4.5)
   const corners = [[0, -margin], [width, -margin], [0, height + margin], [width, height + margin]].map(([x, y]) => unproject(tr, x, y))
   return {
     c0: Math.max(0, Math.floor(Math.min(...corners.map((p) => p[0]))) - 1),

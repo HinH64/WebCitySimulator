@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import { MAP_TILE_KINDS } from '../data/mapBase'
+import { KIND_INDEX, realMapAt } from '../engine/map'
 import { monthOf, yearOf } from '../engine/time'
 import { DISTRICTS, changesBetween, districtCamera, districtCells, gridPoint, mostChangedDistrict, transformFor, unproject, type Camera, type District, type Projection } from '../ui/mapGeometry'
 import { renderScene } from '../ui/mapRenderer'
@@ -36,6 +37,20 @@ function useStudy(seed: number, events: boolean) {
     return () => { cancelled = true }
   }, [seed, events, key])
   return { data, progress }
+}
+
+const extraCache = new WeakMap<StudyFrame, Set<number>>()
+/** Homes on this city's map where real Hong Kong has none at the same month. */
+function extraHomes(frame: StudyFrame): Set<number> {
+  let cells = extraCache.get(frame)
+  if (!cells) {
+    const real = realMapAt(frame.t)
+    const home = (v: number) => v === KIND_INDEX.public || v === KIND_INDEX.private
+    cells = new Set()
+    frame.map.grid.forEach((v, i) => { if (home(v) && !home(real[i])) cells!.add(i) })
+    extraCache.set(frame, cells)
+  }
+  return cells
 }
 
 function localStats(frame: StudyFrame, district: District) {
@@ -162,6 +177,7 @@ function MapPanel({ title, frame, other, district, camera, onCamera, projection,
 
 export function CityStudy() {
   const [scenario, setScenario] = useState<ScenarioId>('housing')
+  const [compare, setCompare] = useState<ScenarioId | 'history'>('history')
   const [districtId, setDistrictId] = useState('kaiTak')
   const [projection, setProjection] = useState<Projection>('iso')
   const [mode, setMode] = useState<'paths' | 'time'>('paths')
@@ -174,11 +190,12 @@ export function CityStudy() {
   const district = DISTRICTS.find((d) => d.id === districtId)!
   const [camera, setCamera] = useState<Camera>(() => districtCamera(DISTRICTS[0]))
   const { data, progress } = useStudy(seed, events)
-  const pairs = useMemo(() => data ? sharedFrames(data.history, data[scenario]) : [], [data, scenario])
+  const pairs = useMemo(() => data ? sharedFrames(data[compare], data[scenario]) : [], [data, compare, scenario])
   const index = Math.min(selected, pairs.length - 1)
   const right = pairs[index]?.[1]
   const left = right && data ? (mode === 'paths' ? pairs[index][0] : data[scenario].frames.filter((f) => f.t <= Math.max(0, right.t - 60)).at(-1)!) : undefined
   const choice = SCENARIOS.find((s) => s.id === scenario)!
+  const compareLabel = compare === 'history' ? '照歷史發展' : SCENARIOS.find((s) => s.id === compare)!.label
   const onCamera = useCallback((value: Camera) => setCamera(value), [])
   const changeDistrict = (id: string) => { setDistrictId(id); setCamera(districtCamera(DISTRICTS.find((d) => d.id === id)!)) }
 
@@ -193,6 +210,13 @@ export function CityStudy() {
   const localCells = useMemo(() => new Set(districtCells(district)), [district])
   const localChanged = [...localCells].filter((i) => changed.has(i)).length
   const stations = left && right ? [localStats(left, district).stations, localStats(right, district).stations] : [0, 0]
+  const extra = useMemo(() => {
+    if (!left || !right) return null
+    const a = extraHomes(left), b = extraHomes(right)
+    const shared = [...a].filter((i) => b.has(i)).length
+    const union = a.size + b.size - shared
+    return { left: a.size, right: b.size, overlap: union ? shared / union : 1 }
+  }, [left, right])
   const inView = right?.works.filter((w) => w.cells.some((i) => localCells.has(i)) || w.building.some((i) => localCells.has(i)) || (() => {
     const [c, r] = gridPoint(...w.place)
     const cam = districtCamera(district)
@@ -201,22 +225,22 @@ export function CityStudy() {
   return (
     <main className="study" data-theme={dark ? 'dark' : 'light'}>
       <div className="study-shell">
-        <header className="study-header"><div><div className="study-eyebrow">平行香港 · 3e.1 城市發展樣板</div><h1>同一個起點，<br className="mobile-break" />建成另一個香港。</h1><p>走近一個地方，看看你的決定留下了甚麼。</p></div><div className="study-header-actions"><button className="quiet-button" onClick={() => setDark(!dark)}>{dark ? '淺色' : '深色'}</button><a href="./">返回遊戲 ↗</a></div></header>
+        <header className="study-header"><div><div className="study-eyebrow">平行香港 · 城市發展樣板</div><h1>同一個起點，<br className="mobile-break" />建成另一個香港。</h1><p>走近一個地方，看看你的決定留下了甚麼。</p></div><div className="study-header-actions"><button className="quiet-button" onClick={() => setDark(!dark)}>{dark ? '淺色' : '深色'}</button><a href="./">返回遊戲 ↗</a></div></header>
 
         <section className="study-controls" aria-label="城市比較設定">
-          <div className="study-selects"><label>這次怎樣發展<select value={scenario} onChange={(e) => { const id = e.target.value as ScenarioId; setScenario(id); setPlaying(false); changeDistrict(SCENARIOS.find((s) => s.id === id)!.focus) }}>{SCENARIOS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</select></label><label>走近哪個地方<select value={districtId} onChange={(e) => changeDistrict(e.target.value)}>{DISTRICTS.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></label><button className="quiet-button find-change" disabled={!left || !right} onClick={() => left && right && changeDistrict(mostChangedDistrict(left.map, right.map).id)}>找主要變化 ↗</button></div>
+          <div className="study-selects"><label>這次怎樣發展<select value={scenario} onChange={(e) => { const id = e.target.value as ScenarioId; setScenario(id); setPlaying(false); changeDistrict(SCENARIOS.find((s) => s.id === id)!.focus) }}>{SCENARIOS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</select></label><label>和甚麼比較<select value={compare} onChange={(e) => { setCompare(e.target.value as ScenarioId | 'history'); setPlaying(false) }}><option value="history">照歷史發展</option>{SCENARIOS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}</select></label><label>走近哪個地方<select value={districtId} onChange={(e) => changeDistrict(e.target.value)}>{DISTRICTS.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select></label><button className="quiet-button find-change" disabled={!left || !right} onClick={() => left && right && changeDistrict(mostChangedDistrict(left.map, right.map).id)}>找主要變化 ↗</button></div>
           <div className="study-options"><div className="study-segments" role="group" aria-label="比較方式"><button aria-pressed={mode === 'paths'} onClick={() => setMode('paths')}>不同玩法</button><button aria-pressed={mode === 'time'} onClick={() => setMode('time')}>同城前後</button></div><div className="study-segments" role="group" aria-label="地圖畫法"><button aria-pressed={projection === 'plan'} onClick={() => setProjection('plan')}>俯視 2D</button><button aria-pressed={projection === 'iso'} onClick={() => setProjection('iso')}>微縮 2.5D</button></div><label className="study-check"><input type="checkbox" checked={highlight} onChange={(e) => setHighlight(e.target.checked)} />標出差異</label><div className="study-zoom"><button aria-label="縮小兩邊地圖" disabled={camera.zoom <= 0.7} onClick={() => setCamera({ ...camera, zoom: Math.max(0.7, camera.zoom / 1.3) })}>−</button><button aria-label="重設兩邊視野" onClick={() => setCamera(districtCamera(district))}>重設視野</button><button aria-label="放大兩邊地圖" disabled={camera.zoom >= 3} onClick={() => setCamera({ ...camera, zoom: Math.min(3, camera.zoom * 1.3) })}>＋</button></div></div>
         </section>
 
         {!left || !right ? <div className="study-loading" role="status"><span className="loading-dot" />正在推演兩個香港：{progress}…</div> : <>
           <div className="study-time"><button className="play-button" aria-label={playing ? '暫停年份播放' : '播放城市發展'} onClick={() => { if (index === pairs.length - 1) setSelected(0); setPlaying(!playing) }}>{playing ? 'Ⅱ' : '▶'}</button><span className="time-edge">1997</span><input type="range" min={0} max={pairs.length - 1} value={index} aria-label="比較年份" aria-valuetext={date(right.t)} onChange={(e) => { setPlaying(false); setSelected(Number(e.target.value)) }} /><strong>{date(right.t)}</strong></div>
-          <div className="study-maps"><MapPanel title={mode === 'paths' ? '照歷史發展' : '同一座城市 · 以前'} frame={left} other={right} district={district} camera={camera} onCamera={onCamera} projection={projection} highlight={highlight} dark={dark} /><MapPanel title={mode === 'paths' ? choice.label : `${choice.label} · 後來`} frame={right} other={left} district={district} camera={camera} onCamera={onCamera} projection={projection} highlight={highlight} dark={dark} /></div>
-          <div className="study-reading"><span><i className="difference-swatch" />{district.name}範圍內，兩邊有 <strong>{localChanged} 格</strong>地表用途不同；鐵路站 <strong>{stations[0]} → {stations[1]} 個</strong>。</span><span>拖動其中一張，兩邊會一起移動；手機可兩指縮放。</span></div>
+          <div className="study-maps"><MapPanel title={mode === 'paths' ? compareLabel : '同一座城市 · 以前'} frame={left} other={right} district={district} camera={camera} onCamera={onCamera} projection={projection} highlight={highlight} dark={dark} /><MapPanel title={mode === 'paths' ? choice.label : `${choice.label} · 後來`} frame={right} other={left} district={district} camera={camera} onCamera={onCamera} projection={projection} highlight={highlight} dark={dark} /></div>
+          <div className="study-reading"><span><i className="difference-swatch" />{district.name}範圍內，兩邊有 <strong>{localChanged} 格</strong>地表用途不同；鐵路站 <strong>{stations[0]} → {stations[1]} 個</strong>。</span>{extra && <span>全港比真實香港多出的住宅：<strong>{extra.left} 格・{extra.right} 格</strong>，兩邊重疊 <strong>{Math.round(extra.overlap * 100)}%</strong>（交集 ÷ 並集）。</span>}<span>拖動其中一張，兩邊會一起移動；手機可兩指縮放。</span></div>
           <section className="study-story"><div className="study-story-intro"><div className="study-eyebrow">決定留下的痕跡</div><h2>{choice.label}</h2><p>{choice.action}。</p><p className="study-small">橙框表示不同的地表；橙色鐵路表示另一邊未有的路線。沒有橙框，也可能只是鐵路或供應數字不同。</p></div><div className="study-projects">{inView.length ? inView.map((w) => <article key={w.key}><span className={`work-dot ${w.state}`} /><div><h3>{w.name}</h3><p>{w.state === 'building' ? '正在施工' : w.state === 'delayed' ? '發展延遲' : '已落成'}{w.unitsBuilding > 0 ? ` · 約 ${format(w.unitsBuilding * 10000)} 個住宅單位施工中` : w.units > 0 ? ` · 約 ${format(w.units * 10000)} 個住宅單位` : ''}{w.due !== undefined && w.state === 'building' ? ` · 預計 ${yearOf(w.due)} 年起落成` : ''}</p></div></article>) : <p className="empty-projects">這個年份，這一帶未有城市自己的具名工程。可以往後看，或按「找主要變化」。</p>}</div><div className="study-city-number"><span>全港公營住宅單位</span><strong>{format(left.metrics.publicUnits * 10000)} <small>→</small><br />{format(right.metrics.publicUnits * 10000)}</strong><span>公屋輪候 {left.metrics.prhWait.toFixed(1)} → {right.metrics.prhWait.toFixed(1)} 年</span><span className="study-small">全港數字，不是這一地區的住戶數。</span></div></section>
           {data?.[scenario].ended && <p className="study-notice">這種玩法在 {date(data[scenario].ended!.t)} 因{data[scenario].ended!.cause === 'debt' ? '財政崩潰' : '民望過低'}結束；上方只比較兩座城市都仍在任內的年度畫面。</p>}
         </>}
 
-        <footer className="study-footer"><p>每格 250 × 250 米。樓群與高度是用地示意，並非真實樓宇；工地／空置也包括原始土地用途資料，只有具名工程代表模擬中的建設。</p><details><summary>比較資料</summary><div className="study-source-controls"><label>種子<select disabled={!data} value={seed} onChange={(e) => { setSeed(Number(e.target.value)); setPlaying(false) }}><option value={1}>1</option><option value={7}>7</option></select></label><label className="study-check"><input type="checkbox" disabled={!data} checked={events} onChange={(e) => { setEvents(e.target.checked); setPlaying(false) }} />開啟一般城市新聞</label></div><p>兩邊使用同一種子及完整模擬規則。年份畫面在推演當時保留，施工狀態來自當時的工程資料；提早結束的城市沒有未來畫面。這是獨立樣板，沒有改動遊戲的模擬或版面。</p></details></footer>
+        <footer className="study-footer"><p>每格 250 × 250 米。樓群與高度是用地示意，並非真實樓宇；工地／空置也包括原始土地用途資料，只有具名工程代表模擬中的建設。</p><details><summary>比較資料</summary><div className="study-source-controls"><label>種子<select disabled={!data} value={seed} onChange={(e) => { setSeed(Number(e.target.value)); setPlaying(false) }}><option value={1}>1</option><option value={7}>7</option></select></label><label className="study-check"><input type="checkbox" disabled={!data} checked={events} onChange={(e) => { setEvents(e.target.checked); setPlaying(false) }} />開啟一般城市新聞</label></div><p>兩邊使用同一種子及完整模擬規則。年份畫面在推演當時保留，施工狀態來自當時的工程資料；提早結束的城市沒有未來畫面。這是獨立樣板；「新增房屋先放」的發展方向只在這裏可選，未加入遊戲，也不改變模擬數字。</p></details></footer>
       </div>
     </main>
   )
